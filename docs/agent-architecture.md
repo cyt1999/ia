@@ -36,6 +36,7 @@ DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_MODEL=deepseek-v4-pro
 DEEPSEEK_REASONING_EFFORT=high
 DEEPSEEK_THINKING_ENABLED=true
+DEEPSEEK_TIMEOUT_SECONDS=30
 ```
 
 Important distinction: this project does not use OpenAI Responses API. DeepSeek's documented JSON Output, Tool Calls, multi-round chat, and thinking mode all use the Chat Completions style API.
@@ -153,6 +154,136 @@ Rules:
 - If DeepSeek is unavailable, the assistant replies with `当前小助手失联了，请稍后再试。`
 
 DeepSeek Tool Calls are model decisions only. The model returns a tool call; our Python code executes the function and sends the tool result back to the model.
+
+## When To Use JSON Output
+
+Use JSON Output when the model only needs to understand a message and return structured data.
+
+Good examples:
+
+```text
+明天上午 9 点做客户报价，比较重要，大概 2 小时。
+客户报价做完了。
+今天不想做这个了，推迟吧。
+```
+
+The expected flow is:
+
+```text
+user message
+-> DeepSeek JSON Output
+-> ParsedIntent / ReviewParsedUpdate
+-> application service executes one operation
+```
+
+This is the best fit for the current MVP because it keeps the behavior explicit and easy to test. The model does not need to inspect the database directly; the application receives typed JSON and decides what service operation to run.
+
+## When To Use Tool Calls
+
+Use Tool Calls when the model needs the application to do something before it can finish the answer.
+
+Good examples:
+
+```text
+把今天没做完的报价相关任务都推迟到明天，然后明天 9 点提醒我做客户报价。
+今天我还有什么没做？
+把最重要的那个任务推迟到明天上午。
+```
+
+These requests require program capabilities:
+
+```text
+1. list_tasks
+2. inspect returned tasks
+3. choose matching tasks
+4. postpone_task or create_task
+5. summarize result
+```
+
+Tool Calls are useful when the assistant needs to query or mutate external state:
+
+- SQLite tasks and reminders.
+- Review records.
+- Feishu message/card state.
+- Future calendar or document integrations.
+
+Tool Calls do not mean the model directly changes the database. The model returns a tool-call request, and Python executes the tool through service-layer methods. This keeps authorization, validation, and transactions inside the application.
+
+First useful tool set:
+
+```text
+list_tasks
+create_task
+complete_task
+postpone_task
+cancel_task
+```
+
+Add more tools only when a real workflow needs them.
+
+## Multi-round Chat
+
+DeepSeek Chat Completions are stateless. The model only knows the `messages` sent in the current request.
+
+Multi-round Chat means the application sends recent conversation turns back to the model:
+
+```json
+[
+  {"role": "user", "content": "明天要去健身"},
+  {"role": "assistant", "content": "要我安排到几点提醒你？"},
+  {"role": "user", "content": "下午 5 点吧"}
+]
+```
+
+Without the previous turns, `下午 5 点吧` is ambiguous. With the previous turns, the model can understand that the user is filling in the time for `明天要去健身`.
+
+Use Multi-round Chat when the user message depends on recent context:
+
+```text
+9 点
+推迟一下
+那个做完了
+就按刚才那个安排
+算了，明天再说
+```
+
+Multi-round Chat is not long-term memory. It is short-term conversation context. Long-term state still belongs in SQLite.
+
+Recommended split:
+
+```text
+Short-term conversation context -> messages passed to DeepSeek
+Long-term business state -> SQLite
+Workflow control -> application code now, possibly LangGraph later
+```
+
+## JSON Output vs Tool Calls vs Multi-round Chat
+
+Use this rule of thumb:
+
+```text
+Need to turn one message into typed data -> JSON Output
+Need to query or modify app state -> Tool Calls
+Need to understand previous turns -> Multi-round Chat
+Need durable memory -> SQLite
+Need complex workflow control -> LangGraph or another orchestration layer
+```
+
+Examples:
+
+```text
+明天 9 点做客户报价
+-> JSON Output
+
+今天我还有什么没做？
+-> Tool Calls: list_tasks
+
+下午 5 点吧
+-> Multi-round Chat, because it depends on previous context
+
+把今天没做完的报价任务都推迟到明天
+-> Tool Calls, probably list_tasks + postpone_task
+```
 
 ## Future Agent Framework
 

@@ -1,5 +1,7 @@
 import json
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from openai import AsyncOpenAI
 from pydantic import ValidationError
@@ -15,7 +17,11 @@ class DeepSeekProvider:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.client = (
-            AsyncOpenAI(api_key=settings.deepseek_api_key, base_url=settings.deepseek_base_url)
+            AsyncOpenAI(
+                api_key=settings.deepseek_api_key,
+                base_url=settings.deepseek_base_url,
+                timeout=settings.deepseek_timeout_seconds,
+            )
             if settings.deepseek_api_key
             else None
         )
@@ -24,9 +30,11 @@ class DeepSeekProvider:
         if self.client is None:
             return unavailable_intent()
         try:
+            today = datetime.now(ZoneInfo(timezone)).date()
             prompt = (
                 f"user_id={user_id}\n"
                 f"timezone={timezone}\n"
+                f"today={today.isoformat()}\n"
                 f"user_message={text}"
             )
             raw = await self._structured_json(
@@ -206,7 +214,8 @@ _INTENT_INSTRUCTIONS = """
 创建任务时：
 - task 必须是对象；其他 intent 时 task 必须是 null
 - task.user_id 使用输入里的 user_id
-- planned_date 使用 YYYY-MM-DD，planned_time 使用 HH:MM:SS；没有明确时间就填 null
+- planned_date 使用 YYYY-MM-DD，planned_time 使用 HH:MM:SS；没有明确日期或时间就填 null
+- “今天、明天、后天、下周”等相对日期必须基于输入里的 today 计算
 - importance 只能是 high、medium、low；默认 medium
 - task_type 只能是 work、life、rest、sleep、review、temp_reminder；默认 work
 - source 使用 user

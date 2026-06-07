@@ -65,6 +65,7 @@ async def test_deepseek_json_output_intent_is_used() -> None:
     assert kwargs["extra_body"] == {"thinking": {"type": "enabled"}}
     assert "json" in kwargs["messages"][0]["content"].lower()
     assert "EXAMPLE JSON OUTPUT" in kwargs["messages"][0]["content"]
+    assert "today=" in kwargs["messages"][1]["content"]
 
 
 async def test_deepseek_json_output_review_is_used() -> None:

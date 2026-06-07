@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     deepseek_reasoning_effort: str = Field(default="high", alias="DEEPSEEK_REASONING_EFFORT")
     deepseek_thinking_enabled: bool = Field(default=True, alias="DEEPSEEK_THINKING_ENABLED")
     deepseek_max_tokens: int = Field(default=2048, alias="DEEPSEEK_MAX_TOKENS")
+    deepseek_timeout_seconds: float = Field(default=30.0, alias="DEEPSEEK_TIMEOUT_SECONDS")
 
     feishu_app_id: str = Field(default="", alias="FEISHU_APP_ID")
     feishu_app_secret: str = Field(default="", alias="FEISHU_APP_SECRET")
