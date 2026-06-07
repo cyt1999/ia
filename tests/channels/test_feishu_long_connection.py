@@ -17,7 +17,7 @@ class FakeSdkChannel:
     def on(self, name, handler):
         self.handlers[name] = handler
 
-    async def start_background(self, timeout=30):
+    def start(self):
         self.started = True
 
     async def disconnect(self):

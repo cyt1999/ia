@@ -1,5 +1,7 @@
+import asyncio
 import json
 from collections.abc import Callable
+from threading import Thread
 
 import structlog
 from sqlalchemy.orm import Session
@@ -23,11 +25,21 @@ class FeishuLongConnectionRunner:
         self.session_factory = session_factory
         self.sdk_channel = sdk_channel or build_lark_channel(settings, transport="ws")
         self.logger = structlog.get_logger(__name__)
+        self._thread: Thread | None = None
+        self._start_error: BaseException | None = None
         self._register_handlers()
 
     async def start(self) -> None:
-        await self.sdk_channel.start_background(timeout=30)
-        self.logger.info("feishu_long_connection_started")
+        self._thread = Thread(
+            target=self._run_sdk_channel,
+            name="feishu-long-connection",
+            daemon=True,
+        )
+        self._thread.start()
+        await asyncio.sleep(0.5)
+        if self._start_error is not None:
+            raise self._start_error
+        self.logger.info("feishu_long_connection_starting")
 
     async def stop(self) -> None:
         await self.sdk_channel.disconnect()
@@ -37,6 +49,13 @@ class FeishuLongConnectionRunner:
         self.sdk_channel.on("message", self._on_message)
         self.sdk_channel.on("cardAction", self._on_card_action)
         self.sdk_channel.on("error", self._on_error)
+
+    def _run_sdk_channel(self) -> None:
+        try:
+            self.sdk_channel.start()
+        except BaseException as exc:
+            self._start_error = exc
+            self.logger.error("feishu_long_connection_start_failed", error=str(exc))
 
     async def _on_message(self, message) -> None:
         interaction = InboundInteraction(
