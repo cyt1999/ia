@@ -44,8 +44,10 @@ SQLite data is stored under `./data` by default.
 
 ## 3. Start The Service
 
+For health-only startup, use test mode to avoid opening the Feishu long connection:
+
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+APP_ENV=test UV_CACHE_DIR=/tmp/uv-cache uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
 Health check:
@@ -57,7 +59,7 @@ curl http://localhost:8000/healthz
 Expected result:
 
 ```json
-{"ok":true}
+{"status":"ok"}
 ```
 
 ## 4. Verify No-Key Behavior
