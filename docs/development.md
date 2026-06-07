@@ -80,6 +80,11 @@ uv run alembic revision --autogenerate -m "describe change"
 uv run pytest
 ```
 
+## Architecture And Debugging
+
+- Agent architecture notes: `docs/agent-architecture.md`
+- Layered debugging guide: `docs/debugging.md`
+
 ## Docker Compose
 
 ```bash
