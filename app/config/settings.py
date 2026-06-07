@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     feishu_app_secret: str = Field(default="", alias="FEISHU_APP_SECRET")
     feishu_encrypt_key: str = Field(default="", alias="FEISHU_ENCRYPT_KEY")
     feishu_verification_token: str = Field(default="", alias="FEISHU_VERIFICATION_TOKEN")
+    feishu_event_mode: str = Field(default="long_connection", alias="FEISHU_EVENT_MODE")
     feishu_webhook_path: str = Field(default="/webhooks/feishu", alias="FEISHU_WEBHOOK_PATH")
     feishu_allowed_open_id: str = Field(default="", alias="FEISHU_ALLOWED_OPEN_ID")
     feishu_allowed_chat_id: str = Field(default="", alias="FEISHU_ALLOWED_CHAT_ID")
@@ -31,4 +32,3 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
-

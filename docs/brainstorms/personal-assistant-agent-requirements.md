@@ -222,9 +222,9 @@ Date: 2026-06-06
 
 - 创建飞书自建应用。
 - 通过应用机器人与用户进行私聊。
-- 使用飞书消息事件接收用户输入。
+- 使用飞书官方 Python SDK 的长连接模式接收用户输入和卡片回调。
 - 使用飞书消息发送能力推送提醒、复盘问题和任务确认。
-- 事件订阅启用完整加密回调，使用飞书开放平台提供的 Encrypt Key 和 Verification Token。
+- webhook 事件订阅作为备用接入方式保留，不作为 MVP 默认入口。
 
 第一版优先支持飞书私聊。群聊可以后续扩展，但不是 MVP 的默认入口。
 
@@ -236,7 +236,8 @@ Date: 2026-06-06
 - 不依赖复杂飞书表格或文档作为主数据源。
 - SQLite 是任务和复盘的主数据存储。
 - 飞书只负责消息入口、提醒出口和用户交互界面。
-- 公网 webhook 不接受未通过飞书加密解密与 token 校验的事件。
+- 默认长连接模式不要求配置公网事件 URL。
+- 如果启用 webhook 备用入口，公网 webhook 不接受未通过飞书加密解密与 token 校验的事件。
 - 业务层只依赖统一的通知渠道接口，不直接依赖飞书 API、飞书消息结构或飞书卡片按钮格式。
 
 ## 技术决策
@@ -253,7 +254,7 @@ Date: 2026-06-06
 - 调度器：APScheduler 内嵌在 FastAPI 进程中。
 - LLM：OpenAI API。
 - Agent 设计：第一版先实现轻量 agent layer，不直接引入重型多 agent 框架；代码保留 `LLMProvider` 抽象，后续可接 OpenAI Agents SDK、LangGraph、Pydantic AI 或其他框架。
-- 飞书安全：启用事件订阅加密回调，校验 Verification Token，使用 Encrypt Key 解密事件内容。
+- 飞书接入：默认使用飞书官方 Python SDK 的长连接模式；webhook 加密回调仅作为备用模式。
 - 通知渠道：第一版实现 FeishuChannel，但业务层面向 NotificationChannel 抽象，便于后续接入其他通知渠道。
 - 用户模型：第一版单用户运行，配置中指定允许交互的飞书用户或会话；数据表仍保留 `user_id` 字段。
 - 时间策略：业务日程按 Asia/Shanghai 计算，数据库存 UTC 时间。
@@ -264,6 +265,7 @@ Date: 2026-06-06
 第一版建议分层：
 
 - Feishu Adapter：飞书事件接收和消息发送。
+- Feishu Long Connection Runner：通过飞书 SDK 长连接接收消息和卡片事件。
 - Notification Channel：渠道无关的通知发送、按钮动作和用户输入抽象。
 - Scheduler：定时提醒、重复提醒、随机提前提醒。
 - Task Service：任务解析、增删改查、状态更新。

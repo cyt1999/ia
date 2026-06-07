@@ -1,47 +1,25 @@
-import json
-import time
+from typing import Literal
 
-import httpx
+from lark_oapi.channel import FeishuChannel as LarkFeishuChannel
 
 from app.config.settings import Settings
 
+TransportMode = Literal["ws", "webhook"]
 
-class FeishuClient:
-    def __init__(self, settings: Settings) -> None:
-        self.settings = settings
-        self._tenant_token: str | None = None
-        self._tenant_token_expires_at = 0.0
 
-    async def tenant_access_token(self) -> str:
-        if self._tenant_token and time.time() < self._tenant_token_expires_at - 60:
-            return self._tenant_token
-        async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.post(
-                "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
-                json={
-                    "app_id": self.settings.feishu_app_id,
-                    "app_secret": self.settings.feishu_app_secret,
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
-        self._tenant_token = data["tenant_access_token"]
-        self._tenant_token_expires_at = time.time() + int(data.get("expire", 7200))
-        return self._tenant_token
+def feishu_transport_mode(value: str) -> TransportMode:
+    if value in {"long_connection", "ws", "websocket"}:
+        return "ws"
+    if value == "webhook":
+        return "webhook"
+    raise ValueError(f"Unsupported Feishu event mode: {value}")
 
-    async def send_message(self, receive_id: str, msg_type: str, content: dict) -> str | None:
-        token = await self.tenant_access_token()
-        async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.post(
-                "https://open.feishu.cn/open-apis/im/v1/messages",
-                params={"receive_id_type": "chat_id"},
-                headers={"Authorization": f"Bearer {token}"},
-                json={
-                    "receive_id": receive_id,
-                    "msg_type": msg_type,
-                    "content": json.dumps(content, ensure_ascii=False),
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
-        return data.get("data", {}).get("message_id")
+
+def build_lark_channel(settings: Settings, *, transport: TransportMode | None = None):
+    return LarkFeishuChannel(
+        app_id=settings.feishu_app_id,
+        app_secret=settings.feishu_app_secret,
+        encrypt_key=settings.feishu_encrypt_key or None,
+        verification_token=settings.feishu_verification_token or None,
+        transport=transport or feishu_transport_mode(settings.feishu_event_mode),
+    )

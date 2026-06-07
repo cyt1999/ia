@@ -3,6 +3,7 @@ from collections.abc import Generator
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from app.db.session import Base
 from app.models.user import User
@@ -10,7 +11,11 @@ from app.models.user import User
 
 @pytest.fixture
 def db_session() -> Generator[Session, None, None]:
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
     Base.metadata.create_all(engine)
     SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
     session = SessionLocal()
@@ -28,4 +33,3 @@ def user(db_session: Session) -> User:
     db_session.commit()
     db_session.refresh(row)
     return row
-

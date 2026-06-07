@@ -10,7 +10,7 @@ origin: "docs/brainstorms/personal-assistant-agent-requirements.md"
 
 ## Summary
 
-Build a Python/FastAPI personal assistant service that runs on a cloud server, receives Feishu private-chat events, stores tasks/reminders/reviews in SQLite, and sends proactive reminders through a channel abstraction. The MVP uses OpenAI for lightweight natural-language understanding and message generation, while keeping the business logic independent of Feishu so later notification channels can be added.
+Build a Python/FastAPI personal assistant service that runs on a cloud server, receives Feishu private-chat events through the official SDK long connection, stores tasks/reminders/reviews in SQLite, and sends proactive reminders through a channel abstraction. The MVP uses OpenAI for lightweight natural-language understanding and message generation, while keeping the business logic independent of Feishu so later notification channels can be added.
 
 ---
 
@@ -42,7 +42,7 @@ The upstream requirements document is `docs/brainstorms/personal-assistant-agent
 
 **Integrations and extensibility**
 
-- R11. Feishu webhook events must use encrypted callback handling with `Encrypt Key` and `Verification Token` validation.
+- R11. Feishu inbound events must use the official Python SDK long connection by default, with encrypted webhook handling available only as a fallback mode.
 - R12. Business logic must depend on a `NotificationChannel` abstraction, not direct Feishu message structures.
 - R13. Interactive reminder buttons must map to channel-neutral actions such as `ack_reminder`, `snooze_reminder`, and `skip_today`.
 - R14. All outbound messages must be rendered from a channel-neutral message model with plain-text fallback.
@@ -63,11 +63,11 @@ The upstream requirements document is `docs/brainstorms/personal-assistant-agent
 - KTD1. Python + FastAPI service: FastAPI is sufficient for Feishu webhooks, health checks, and internal service composition without introducing a separate web framework or worker system.
 - KTD2. SQLite + SQLAlchemy + Alembic: SQLite keeps deployment simple for one user, while SQLAlchemy and Alembic preserve a clean path to PostgreSQL if the assistant later becomes multi-user.
 - KTD3. APScheduler inside the FastAPI process: The MVP has one user and a small reminder volume, so an embedded scheduler avoids Redis/Celery operational cost while still supporting dynamic rescheduling.
-- KTD4. Channel abstraction before Feishu implementation: Feishu is the first delivery channel, not the product boundary. Business services should emit `OutboundMessage` and action IDs that `FeishuChannel` renders into Feishu text, rich text, or interactive cards.
+- KTD4. Channel abstraction before Feishu implementation: Feishu is the first delivery channel, not the product boundary. Business services should emit `OutboundMessage` and action IDs that the Feishu adapter renders through the SDK into text, rich text, or interactive cards.
 - KTD5. Lightweight agent layer first: The MVP should not start with LangGraph, CrewAI, or a multi-agent framework. Use an `LLMProvider` plus typed intent/output models so a heavier framework can replace the agent layer later.
 - KTD6. UTC persistence with Shanghai business time: Schedule generation, review dates, and user-facing text use `Asia/Shanghai`; database timestamps store UTC instants for predictable logs and deployment portability.
 - KTD7. Structured stdout logs: Docker Compose naturally captures stdout. Add structured event logs before adding external monitoring.
-- KTD8. Full Feishu encrypted callback handling: The webhook is public internet-facing, so event decryption and token validation are part of the MVP rather than a later hardening pass.
+- KTD8. Feishu SDK long connection: The MVP should use the official SDK WebSocket transport for inbound messages and card actions. Webhook encrypted callback handling remains as a fallback for deployments that prefer HTTP callbacks.
 
 ---
 
@@ -75,9 +75,8 @@ The upstream requirements document is `docs/brainstorms/personal-assistant-agent
 
 ```mermaid
 flowchart TB
-  Feishu[Feishu app bot] -->|encrypted event webhook| API[FastAPI webhook]
-  API --> Security[Feishu decrypt + token verify]
-  Security --> Inbound[Inbound event normalizer]
+  Feishu[Feishu app bot] -->|SDK WebSocket events| Runner[Feishu long connection runner]
+  Runner --> Inbound[Inbound event normalizer]
   Inbound --> Router[Interaction router]
   Router --> TaskSvc[Task service]
   Router --> ReviewSvc[Review service]
@@ -94,7 +93,7 @@ flowchart TB
   ReviewSvc --> Channel
   TaskSvc --> Channel
   Channel --> FeishuAdapter[FeishuChannel]
-  FeishuAdapter -->|message API| Feishu
+  FeishuAdapter -->|SDK send| Feishu
 ```
 
 The central rule is that `TaskService`, `ReminderService`, and `ReviewService` never construct Feishu payloads. They produce channel-neutral messages and consume channel-neutral actions. Feishu-specific encryption, event shapes, card payloads, and access-token handling stay inside the Feishu adapter layer.
@@ -251,9 +250,9 @@ Use enums in application code for task status, task type, importance, reminder s
 
 **Verification:** Service tests can assert outbound message semantics without importing Feishu code.
 
-### U4. Feishu Channel And Secure Webhook Adapter
+### U4. Feishu SDK Channel And Long Connection Adapter
 
-**Goal:** Implement Feishu encrypted event handling, event normalization, message sending, and interactive card rendering through the channel abstraction.
+**Goal:** Implement Feishu SDK long connection event handling, event normalization, message sending, and interactive card rendering through the channel abstraction.
 
 **Requirements:** R1, R11, R12, R13, R14, R18.
 
@@ -265,27 +264,29 @@ Use enums in application code for task status, task type, importance, reminder s
 - `app/channels/feishu/client.py`
 - `app/channels/feishu/crypto.py`
 - `app/channels/feishu/events.py`
+- `app/channels/feishu/long_connection.py`
 - `app/channels/feishu/render.py`
 - `app/channels/feishu/channel.py`
-- `app/services/inbound_service.py`
-- `tests/api/test_feishu_webhook.py`
+- `tests/channels/test_feishu_channel.py`
 - `tests/channels/test_feishu_crypto.py`
+- `tests/channels/test_feishu_long_connection.py`
 - `tests/channels/test_feishu_render.py`
 
-**Approach:** Keep webhook responsibilities narrow: decrypt, verify token, handle Feishu URL verification challenge, normalize message/card events, dedupe inbound message IDs, and dispatch a normalized interaction. Implement tenant access token retrieval and caching in the Feishu client. Render channel-neutral messages to Feishu cards when actions exist, and text/rich-text messages otherwise.
+**Approach:** Use the official Feishu Python SDK `FeishuChannel` with WebSocket transport as the default inbound path. Normalize SDK `message` and `cardAction` events into the app's `InboundInteraction` model, then dispatch them through `InteractionRouter`. Use the SDK channel for outbound sending so token management and API calls stay inside the SDK. Keep encrypted webhook handling available as a fallback path.
 
-**Patterns to follow:** Feishu official event subscription docs for `Encrypt Key` and `Verification Token`; Feishu `im.message.receive_v1`; Feishu application bot message API.
+**Patterns to follow:** Feishu official Python SDK `lark-oapi`; SDK `FeishuChannel.on("message")`, `FeishuChannel.on("cardAction")`, `FeishuChannel.start_background()`, and `FeishuChannel.send(...)`.
 
 **Test scenarios:**
 
-- Valid encrypted event decrypts and dispatches a normalized inbound message.
-- Invalid verification token is rejected and logged without entering business services.
-- Feishu URL verification challenge returns the required challenge response.
+- SDK message event dispatches a normalized inbound message.
+- SDK card action event dispatches a normalized internal action.
+- Long connection starts and stops through application lifespan.
+- Webhook fallback still rejects invalid verification tokens when enabled.
 - Duplicate message event does not process twice.
 - Channel-neutral reminder actions render as Feishu card buttons with recoverable internal action payloads.
 - Message send failures create a failed notification attempt without leaking secrets to logs.
 
-**Verification:** A Feishu event fixture can be processed end-to-end through the adapter into a normalized interaction, and outbound messages render without business services depending on Feishu payload shape.
+**Verification:** SDK event fixtures can be processed into normalized interactions, and outbound messages render without business services depending on SDK payload shape.
 
 ### U5. Task Service And Intent Handling
 
