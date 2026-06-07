@@ -1,0 +1,88 @@
+# Development Guide
+
+This project uses `uv` for Python dependency and virtual environment management.
+
+## Install uv
+
+Follow the official installer for your system:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Then verify:
+
+```bash
+uv --version
+```
+
+## Create The Environment
+
+```bash
+uv sync
+```
+
+This creates `.venv/` and installs dependencies from `pyproject.toml`. When `uv.lock` exists, `uv sync` installs the locked versions.
+
+## Add Dependencies
+
+Runtime dependency:
+
+```bash
+uv add fastapi
+```
+
+Development dependency:
+
+```bash
+uv add --dev pytest
+```
+
+## Configure Environment
+
+```bash
+cp .env.example .env
+```
+
+Fill in OpenAI and Feishu values in `.env`. Do not commit `.env`.
+
+## Run The App Locally
+
+```bash
+uv run uvicorn app.main:app --reload
+```
+
+Health check:
+
+```bash
+curl http://localhost:8000/healthz
+```
+
+## Database Migrations
+
+Apply migrations:
+
+```bash
+uv run alembic upgrade head
+```
+
+Create a new migration after model changes:
+
+```bash
+uv run alembic revision --autogenerate -m "describe change"
+```
+
+## Tests
+
+```bash
+uv run pytest
+```
+
+## Docker Compose
+
+```bash
+docker compose up --build
+```
+
+SQLite data is stored under `./data` by default.
+
