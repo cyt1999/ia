@@ -11,31 +11,30 @@ from app.schemas.reviews import ReviewParsedUpdate
 AI_UNAVAILABLE_MESSAGE = "当前小助手失联了，请稍后再试。"
 
 
-class OpenAIProvider:
+class DeepSeekProvider:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.client = (
-            AsyncOpenAI(api_key=settings.openai_api_key) if settings.openai_api_key else None
+            AsyncOpenAI(api_key=settings.deepseek_api_key, base_url=settings.deepseek_base_url)
+            if settings.deepseek_api_key
+            else None
         )
 
     async def parse_intent(self, *, user_id: int, text: str, timezone: str) -> ParsedIntent:
         if self.client is None:
             return unavailable_intent()
         try:
-            response = await self.client.responses.create(
-                model=self.settings.openai_model,
-                instructions=_INTENT_INSTRUCTIONS,
-                input=(
-                    f"user_id={user_id}\n"
-                    f"timezone={timezone}\n"
-                    f"user_message={text}"
-                ),
-                text=_json_schema_text_config(
-                    name="parsed_intent",
-                    schema=_PARSED_INTENT_SCHEMA,
-                ),
+            prompt = (
+                f"user_id={user_id}\n"
+                f"timezone={timezone}\n"
+                f"user_message={text}"
             )
-            raw = response.output_text
+            raw = await self._structured_json(
+                name="parsed_intent",
+                instructions=_INTENT_INSTRUCTIONS,
+                user_input=prompt,
+                schema=_PARSED_INTENT_SCHEMA,
+            )
         except Exception:
             return unavailable_intent()
         try:
@@ -47,33 +46,77 @@ class OpenAIProvider:
         if self.client is None:
             return unavailable_review_update()
         try:
-            response = await self.client.responses.create(
-                model=self.settings.openai_model,
+            raw = await self._structured_json(
+                name="review_update",
                 instructions=_REVIEW_INSTRUCTIONS,
-                input=text,
-                text=_json_schema_text_config(
-                    name="review_update",
-                    schema=_REVIEW_UPDATE_SCHEMA,
-                ),
+                user_input=text,
+                schema=_REVIEW_UPDATE_SCHEMA,
             )
-            return ReviewParsedUpdate.model_validate(json.loads(response.output_text))
+            return ReviewParsedUpdate.model_validate(json.loads(raw))
         except Exception:
             return unavailable_review_update()
 
     async def reminder_copy(self, *, title: str, kind: str, context: str | None = None) -> str:
         if self.client is None:
             return _default_reminder_copy(title=title, kind=kind)
-        response = await self.client.responses.create(
-            model=self.settings.openai_model,
-            input=[
-                {
-                    "role": "system",
-                    "content": "Write one short encouraging Chinese reminder. No lecture.",
-                },
-                {"role": "user", "content": f"kind={kind}, title={title}, context={context or ''}"},
-            ],
+        user_input = f"kind={kind}, title={title}, context={context or ''}"
+        response = await self.client.chat.completions.create(
+            **self._chat_completion_kwargs(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "Write one short encouraging Chinese reminder. No lecture.",
+                    },
+                    {"role": "user", "content": user_input},
+                ],
+            )
         )
-        return response.output_text.strip()
+        return (response.choices[0].message.content or "").strip()
+
+    async def _structured_json(
+        self,
+        *,
+        name: str,
+        instructions: str,
+        user_input: str,
+        schema: dict[str, Any],
+    ) -> str:
+        response = await self.client.chat.completions.create(
+            **self._chat_completion_kwargs(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": _chat_json_instructions(
+                            instructions=instructions,
+                            name=name,
+                            schema=schema,
+                        ),
+                    },
+                    {"role": "user", "content": user_input},
+                ],
+                response_format={"type": "json_object"},
+            )
+        )
+        return response.choices[0].message.content or ""
+
+    def _chat_completion_kwargs(
+        self,
+        *,
+        messages: list[dict[str, str]],
+        response_format: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        kwargs: dict[str, Any] = {
+            "model": self.settings.deepseek_model,
+            "messages": messages,
+            "stream": False,
+            "max_tokens": self.settings.deepseek_max_tokens,
+        }
+        if response_format is not None:
+            kwargs["response_format"] = response_format
+        kwargs["reasoning_effort"] = self.settings.deepseek_reasoning_effort
+        if self.settings.deepseek_thinking_enabled:
+            kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
+        return kwargs
 
 
 def unavailable_intent() -> ParsedIntent:
@@ -96,15 +139,56 @@ def _default_reminder_copy(*, title: str, kind: str) -> str:
     return f"差不多该开始：{title}。先做最小一步就行。"
 
 
-def _json_schema_text_config(*, name: str, schema: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "format": {
-            "type": "json_schema",
-            "name": name,
-            "strict": True,
-            "schema": schema,
-        }
-    }
+def _chat_json_instructions(
+    *,
+    instructions: str,
+    name: str,
+    schema: dict[str, Any],
+) -> str:
+    return (
+        f"{instructions}\n\n"
+        "你必须只输出一个 JSON 对象，不要输出 Markdown，不要输出代码块。"
+        f"输出名称：{name}\n"
+        f"JSON Schema：{json.dumps(schema, ensure_ascii=False)}\n"
+        f"EXAMPLE JSON OUTPUT：{_json_example(name)}"
+    )
+
+
+def _json_example(name: str) -> str:
+    if name == "review_update":
+        return json.dumps(
+            {
+                "completed_task_titles": ["客户报价"],
+                "postponed_task_titles": [],
+                "cancelled_task_titles": [],
+                "tomorrow_tasks": ["整理方案"],
+                "completed_summary": "完成了客户报价。",
+                "unfinished_summary": None,
+                "tomorrow_plan": "明天整理方案。",
+                "state_note": "状态还可以。",
+            },
+            ensure_ascii=False,
+        )
+    return json.dumps(
+        {
+            "intent": "create_task",
+            "task": {
+                "user_id": 1,
+                "title": "客户报价",
+                "importance": "high",
+                "task_type": "work",
+                "planned_date": "2026-06-08",
+                "planned_time": "09:00:00",
+                "estimated_minutes": 120,
+                "source": "user",
+                "notes": None,
+            },
+            "target_title": None,
+            "reply": None,
+            "confidence": 0.92,
+        },
+        ensure_ascii=False,
+    )
 
 
 _INTENT_INSTRUCTIONS = """

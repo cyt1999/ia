@@ -44,7 +44,7 @@ uv add --dev pytest
 cp .env.example .env
 ```
 
-Fill in OpenAI and Feishu values in `.env`. Do not commit `.env`.
+Fill in DeepSeek and Feishu values in `.env`. Do not commit `.env`.
 
 `FEISHU_EVENT_MODE=long_connection` is the default. In this mode the app uses the official Feishu Python SDK WebSocket connection and does not need a public event subscription URL. Set `FEISHU_EVENT_MODE=webhook` only if you intentionally want to use the HTTP webhook fallback.
 

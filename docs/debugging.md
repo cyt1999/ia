@@ -4,7 +4,7 @@ Date: 2026-06-07
 
 ## Goal
 
-Use a layered debugging path. Verify local behavior first, then OpenAI, then Feishu.
+Use a layered debugging path. Verify local behavior first, then DeepSeek, then Feishu.
 
 The recommended order is:
 
@@ -13,7 +13,7 @@ tests
 -> health check
 -> database migration
 -> no-key assistant behavior
--> OpenAI structured parsing
+-> DeepSeek JSON Output parsing
 -> Feishu long connection
 -> real Feishu message
 ```
@@ -64,7 +64,7 @@ Expected result:
 
 ## 4. Verify No-Key Behavior
 
-If `OPENAI_API_KEY` is empty, any normal user message should not be parsed by fallback rules.
+If `DEEPSEEK_API_KEY` is empty, any normal user message should not be parsed by fallback rules.
 
 Expected assistant reply:
 
@@ -81,23 +81,27 @@ Expected database behavior:
 
 This confirms the app is not silently using local hard-coded parsing.
 
-## 5. Configure OpenAI
+## 5. Configure DeepSeek
 
 Set the following in `.env`:
 
 ```bash
-OPENAI_API_KEY=...
-OPENAI_MODEL=gpt-4.1-mini
+DEEPSEEK_API_KEY=...
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-v4-pro
+DEEPSEEK_REASONING_EFFORT=high
+DEEPSEEK_THINKING_ENABLED=true
+DEEPSEEK_MAX_TOKENS=2048
 ```
 
 Do not commit `.env`.
 
-The current OpenAI provider uses Responses API structured output with JSON Schema:
+The current LLM provider uses DeepSeek Chat Completions JSON Output:
 
 - `parsed_intent` for normal user messages.
 - `review_update` for evening reviews.
 
-If OpenAI is unavailable, times out, or returns invalid output, the assistant should still reply:
+If DeepSeek is unavailable, times out, returns empty content, or returns invalid JSON, the assistant should still reply:
 
 ```text
 当前小助手失联了，请稍后再试。
@@ -124,13 +128,13 @@ Useful test messages:
 客户报价做完了
 ```
 
-Expected behavior with a valid OpenAI key:
+Expected behavior with a valid DeepSeek key:
 
 - Task creation messages should create a task and reply with a structured confirmation.
 - Completion messages should update the most relevant task if it can be matched.
 - Ambiguous messages should get a natural clarification or small-talk reply from the model.
 
-Expected behavior without a valid OpenAI key:
+Expected behavior without a valid DeepSeek key:
 
 - All normal user messages should return the unified assistant-offline reply.
 
@@ -161,8 +165,8 @@ Common boundaries:
 
 - Feishu SDK connection problem: no inbound event reaches `FeishuLongConnectionRunner`.
 - Authorization problem: inbound event is ignored because sender/chat does not match allowed IDs.
-- OpenAI problem: inbound event is processed but replies with the assistant-offline message.
-- Parsing problem: OpenAI returns JSON that does not validate against the schema.
+- DeepSeek problem: inbound event is processed but replies with the assistant-offline message.
+- Parsing problem: DeepSeek returns JSON that does not validate against the schema.
 - Service problem: parsed intent is valid but task/review state changes are wrong.
 - Channel rendering problem: service result is correct but Feishu message rendering is wrong.
 
@@ -170,7 +174,7 @@ Keep logs and tests aligned to these boundaries.
 
 ## 9. Next Manual Test
 
-After adding a real `OPENAI_API_KEY`, run the app and send:
+After adding a real `DEEPSEEK_API_KEY`, run the app and send:
 
 ```text
 明天上午 9 点做客户报价，比较重要，大概 2 小时。

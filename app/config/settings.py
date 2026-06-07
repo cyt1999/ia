@@ -12,8 +12,12 @@ class Settings(BaseSettings):
     database_url: str = Field(default="sqlite:///./data/assistant.db", alias="DATABASE_URL")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
-    openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
-    openai_model: str = Field(default="gpt-4.1-mini", alias="OPENAI_MODEL")
+    deepseek_api_key: str = Field(default="", alias="DEEPSEEK_API_KEY")
+    deepseek_base_url: str = Field(default="https://api.deepseek.com", alias="DEEPSEEK_BASE_URL")
+    deepseek_model: str = Field(default="deepseek-v4-pro", alias="DEEPSEEK_MODEL")
+    deepseek_reasoning_effort: str = Field(default="high", alias="DEEPSEEK_REASONING_EFFORT")
+    deepseek_thinking_enabled: bool = Field(default=True, alias="DEEPSEEK_THINKING_ENABLED")
+    deepseek_max_tokens: int = Field(default=2048, alias="DEEPSEEK_MAX_TOKENS")
 
     feishu_app_id: str = Field(default="", alias="FEISHU_APP_ID")
     feishu_app_secret: str = Field(default="", alias="FEISHU_APP_SECRET")

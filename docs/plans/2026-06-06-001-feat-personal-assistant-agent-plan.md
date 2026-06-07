@@ -10,7 +10,7 @@ origin: "docs/brainstorms/personal-assistant-agent-requirements.md"
 
 ## Summary
 
-Build a Python/FastAPI personal assistant service that runs on a cloud server, receives Feishu private-chat events through the official SDK long connection, stores tasks/reminders/reviews in SQLite, and sends proactive reminders through a channel abstraction. The MVP uses OpenAI for lightweight natural-language understanding and message generation, while keeping the business logic independent of Feishu so later notification channels can be added.
+Build a Python/FastAPI personal assistant service that runs on a cloud server, receives Feishu private-chat events through the official SDK long connection, stores tasks/reminders/reviews in SQLite, and sends proactive reminders through a channel abstraction. The MVP uses DeepSeek through the OpenAI SDK-compatible Chat Completions API for lightweight natural-language understanding and message generation, while keeping the business logic independent of Feishu so later notification channels can be added.
 
 ---
 
@@ -46,7 +46,7 @@ The upstream requirements document is `docs/brainstorms/personal-assistant-agent
 - R12. Business logic must depend on a `NotificationChannel` abstraction, not direct Feishu message structures.
 - R13. Interactive reminder buttons must map to channel-neutral actions such as `ack_reminder`, `snooze_reminder`, and `skip_today`.
 - R14. All outbound messages must be rendered from a channel-neutral message model with plain-text fallback.
-- R15. OpenAI API calls must be isolated behind an `LLMProvider` abstraction.
+- R15. DeepSeek API calls must be isolated behind an `LLMProvider` abstraction.
 
 **Operations and developer experience**
 
@@ -84,7 +84,7 @@ flowchart TB
   TaskSvc --> Agent[Agent layer]
   ReviewSvc --> Agent
   ReminderSvc --> Agent
-  Agent --> LLM[OpenAI provider]
+  Agent --> LLM[DeepSeek provider]
   TaskSvc --> DB[(SQLite)]
   ReviewSvc --> DB
   ReminderSvc --> DB
@@ -169,13 +169,13 @@ Use enums in application code for task status, task type, importance, reminder s
 - `docs/development.md`
 - `tests/test_health.py`
 
-**Approach:** Configure uv-managed dependencies for FastAPI, Uvicorn, SQLAlchemy, Alembic, APScheduler, OpenAI SDK, HTTP client, Pydantic settings, pytest, and logging helpers. Add a `/healthz` route that does not touch external services. Docker Compose should mount a host data directory for SQLite and load env vars through `env_file`.
+**Approach:** Configure uv-managed dependencies for FastAPI, Uvicorn, SQLAlchemy, Alembic, APScheduler, OpenAI SDK, HTTP client, Pydantic settings, pytest, and logging helpers. The OpenAI SDK is used as the DeepSeek-compatible client. Add a `/healthz` route that does not touch external services. Docker Compose should mount a host data directory for SQLite and load env vars through `env_file`.
 
 **Patterns to follow:** No existing application patterns are present in the repo. Use conventional FastAPI app factory and Pydantic settings patterns.
 
 **Test scenarios:**
 
-- Health route returns success without requiring Feishu, OpenAI, or SQLite migrations.
+- Health route returns success without requiring Feishu, DeepSeek, or SQLite migrations.
 - Settings load required values from environment and reject missing required secrets in non-test mode.
 - Test mode can run with in-memory or temporary SQLite configuration.
 
@@ -299,7 +299,7 @@ Use enums in application code for task status, task type, importance, reminder s
 **Files:**
 
 - `app/agent/provider.py`
-- `app/agent/openai_provider.py`
+- `app/agent/deepseek_provider.py`
 - `app/agent/intents.py`
 - `app/services/task_service.py`
 - `app/services/interaction_router.py`
@@ -308,7 +308,7 @@ Use enums in application code for task status, task type, importance, reminder s
 - `tests/services/test_task_service.py`
 - `tests/services/test_interaction_router.py`
 
-**Approach:** Use OpenAI through `LLMProvider` for structured outputs such as `create_task`, `update_task`, `complete_task`, `postpone_task`, `cancel_task`, `acknowledge`, `small_talk`, and `unknown`. Keep deterministic shortcut parsing for button actions and common acknowledgements so simple confirmations do not require an LLM call. When task details are incomplete, ask one concise follow-up instead of forcing a form-like flow.
+**Approach:** Use DeepSeek through `LLMProvider` for structured outputs such as `create_task`, `update_task`, `complete_task`, `postpone_task`, `cancel_task`, `acknowledge`, `small_talk`, and `unknown`. Button actions can remain deterministic because they already carry explicit action IDs. Natural-language messages should not use local parsing fallbacks; if the LLM is unavailable, return the unified assistant-offline message.
 
 **Patterns to follow:** Provider abstraction with typed request/response objects. Avoid storing raw chain-of-thought or hidden model reasoning.
 
@@ -320,7 +320,7 @@ Use enums in application code for task status, task type, importance, reminder s
 - Ambiguous completion asks a follow-up instead of updating the wrong task.
 - “今天不做了” cancels or skips the relevant task according to action context.
 - No-task morning interaction prompts for 1-3 tasks instead of fabricating tasks.
-- LLM provider failure returns a graceful fallback message and logs the error.
+- LLM provider failure returns the unified assistant-offline message and logs the error.
 
 **Verification:** Core task operations work with deterministic action inputs and with mocked structured LLM outputs.
 
@@ -390,9 +390,9 @@ Use enums in application code for task status, task type, importance, reminder s
 
 **Verification:** Evening review can be exercised with mocked parser output and produces both task updates and a durable review record.
 
-### U8. OpenAI Provider And Assistant Voice
+### U8. DeepSeek Provider And Assistant Voice
 
-**Goal:** Add OpenAI-backed generation for structured task/review parsing and context-aware message copy while preserving deterministic service behavior.
+**Goal:** Add DeepSeek-backed generation for structured task/review parsing and context-aware message copy while preserving deterministic service behavior.
 
 **Requirements:** R14, R15.
 
@@ -401,12 +401,12 @@ Use enums in application code for task status, task type, importance, reminder s
 **Files:**
 
 - `app/agent/prompts.py`
-- `app/agent/openai_provider.py`
+- `app/agent/deepseek_provider.py`
 - `app/agent/message_copy.py`
-- `tests/agent/test_openai_provider.py`
+- `tests/agent/test_deepseek_provider.py`
 - `tests/agent/test_message_copy.py`
 
-**Approach:** Separate parser prompts from message-copy prompts. Parser calls must request structured JSON-like output validated by Pydantic models. Copy-generation calls receive bounded context: current task, time of day, reminder type, missed response state, and style preference. If OpenAI is unavailable, fall back to deterministic templates.
+**Approach:** Separate parser prompts from message-copy prompts. Parser calls must use DeepSeek Chat Completions JSON Output (`response_format={"type":"json_object"}`) and validate the result with Pydantic models. Copy-generation calls receive bounded context: current task, time of day, reminder type, missed response state, and style preference. If DeepSeek is unavailable for user messages, return the unified assistant-offline message instead of local natural-language fallback parsing.
 
 **Patterns to follow:** Low-temperature structured parsing; never let generated prose decide task state without typed validation.
 
@@ -416,9 +416,9 @@ Use enums in application code for task status, task type, importance, reminder s
 - Reminder copy includes the relevant task context but cannot change task status.
 - Rest reminder copy does not ask for work progress.
 - Sleep reminder copy uses lower-stimulation phrasing.
-- OpenAI timeout falls back to a deterministic message.
+- DeepSeek timeout returns the unified assistant-offline message for user messages.
 
-**Verification:** Agent behavior remains testable with mocked provider responses and service logic does not depend on live OpenAI calls.
+**Verification:** Agent behavior remains testable with mocked provider responses and service logic does not depend on live DeepSeek calls.
 
 ### U9. Operations, Logging, And Authorization Boundaries
 
@@ -454,7 +454,7 @@ Use enums in application code for task status, task type, importance, reminder s
 
 ### U10. End-To-End MVP Flow Tests
 
-**Goal:** Add focused integration tests that prove the main assistant loops work across services without requiring live Feishu or OpenAI.
+**Goal:** Add focused integration tests that prove the main assistant loops work across services without requiring live Feishu or DeepSeek.
 
 **Requirements:** R1-R20.
 
@@ -467,7 +467,7 @@ Use enums in application code for task status, task type, importance, reminder s
 - `tests/integration/test_review_flow.py`
 - `tests/fixtures/feishu_events.py`
 
-**Approach:** Use fake Feishu and fake OpenAI providers. Exercise the main flows with temporary SQLite databases and frozen time. Keep tests deterministic by injecting random reminder offsets where needed.
+**Approach:** Use fake Feishu and fake LLM providers. Exercise the main flows with temporary SQLite databases and frozen time. Keep tests deterministic by injecting random reminder offsets where needed.
 
 **Patterns to follow:** Integration tests should verify component wiring and state transitions, not duplicate every unit-level edge case.
 
@@ -501,7 +501,7 @@ Use enums in application code for task status, task type, importance, reminder s
 - One configured user.
 - Feishu private-chat interaction.
 - SQLite persistence.
-- OpenAI-backed parsing and copy with deterministic fallbacks.
+- DeepSeek-backed parsing and copy, with no local natural-language fallback parsing for user messages.
 - Fixed default daily schedule.
 - Button actions plus natural-language replies.
 
@@ -528,7 +528,7 @@ Use enums in application code for task status, task type, importance, reminder s
 - Feishu encrypted callback details are external and version-sensitive. Use official docs and fixture-based tests around the crypto boundary.
 - APScheduler jobs are in-process. If the container is stopped, reminders will not fire until it starts again; startup must reconcile overdue/pending reminders.
 - SQLite is sufficient for a single user but needs backup discipline. Docker data mounts should be documented.
-- OpenAI calls can fail or be slow. All reminder and task flows need deterministic fallbacks.
+- DeepSeek calls can fail or be slow. User-message flows should return the unified assistant-offline message; reminder copy can use deterministic templates.
 - Over-logging user messages could expose private data. Logs should default to event summaries, IDs, and redacted fields.
 - LLM parsing may infer the wrong task from vague input. Ambiguous destructive updates should ask a follow-up.
 
@@ -537,7 +537,7 @@ Use enums in application code for task status, task type, importance, reminder s
 ## Documentation And Operational Notes
 
 - `docs/development.md` should teach uv basics for this project: install uv, run `uv sync`, add dependencies, run tests, run Alembic migrations, start FastAPI locally, and run Docker Compose.
-- `.env.example` should list required configuration names without real values: OpenAI key, Feishu app credentials, Feishu encrypt key/token, allowed Feishu user/chat, database URL/path, timezone, and logging level.
+- `.env.example` should list required configuration names without real values: DeepSeek key/model settings, Feishu app credentials, Feishu encrypt key/token, allowed Feishu user/chat, database URL/path, timezone, and logging level.
 - Add a short Feishu setup checklist covering app bot enablement, event subscription URL, encrypted callback settings, required permissions, and private-chat testing.
 - Document how to inspect logs with Docker Compose and where SQLite data lives on the server.
 

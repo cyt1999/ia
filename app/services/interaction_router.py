@@ -3,8 +3,8 @@ import json
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.agent.deepseek_provider import AI_UNAVAILABLE_MESSAGE, DeepSeekProvider, unavailable_intent
 from app.agent.intents import IntentType
-from app.agent.openai_provider import AI_UNAVAILABLE_MESSAGE, OpenAIProvider, unavailable_intent
 from app.agent.provider import LLMProvider
 from app.channels.actions import ActionId
 from app.channels.base import InboundInteraction, NotificationChannel
@@ -30,7 +30,7 @@ class InteractionRouter:
         self.settings = settings
         self.channel = channel
         self.authz = AuthzService(settings)
-        self.llm = llm or OpenAIProvider(settings)
+        self.llm = llm or DeepSeekProvider(settings)
         self.renderer = MessageRenderer()
 
     async def handle(self, interaction: InboundInteraction) -> None:

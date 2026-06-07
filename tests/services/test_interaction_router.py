@@ -2,8 +2,8 @@ from datetime import date, time
 
 from sqlalchemy.orm import Session
 
+from app.agent.deepseek_provider import AI_UNAVAILABLE_MESSAGE
 from app.agent.intents import IntentType, ParsedIntent
-from app.agent.openai_provider import AI_UNAVAILABLE_MESSAGE
 from app.channels.base import InboundInteraction, SendResult
 from app.config.settings import Settings
 from app.models.enums import Importance
@@ -53,7 +53,7 @@ class BrokenLLM(FakeLLM):
 async def test_router_replies_after_creating_task(db_session: Session) -> None:
     channel = FakeChannel()
     settings = Settings(
-        OPENAI_API_KEY="",
+        DEEPSEEK_API_KEY="",
         FEISHU_ALLOWED_OPEN_ID="ou_user",
         FEISHU_ALLOWED_CHAT_ID="oc_chat",
     )
@@ -81,7 +81,7 @@ async def test_router_replies_after_creating_task(db_session: Session) -> None:
 async def test_router_replies_unavailable_without_ai(db_session: Session) -> None:
     channel = FakeChannel()
     settings = Settings(
-        OPENAI_API_KEY="",
+        DEEPSEEK_API_KEY="",
         FEISHU_ALLOWED_OPEN_ID="ou_user",
         FEISHU_ALLOWED_CHAT_ID="oc_chat",
     )
@@ -103,7 +103,7 @@ async def test_router_replies_unavailable_without_ai(db_session: Session) -> Non
 async def test_router_replies_unavailable_when_llm_raises(db_session: Session) -> None:
     channel = FakeChannel()
     settings = Settings(
-        OPENAI_API_KEY="",
+        DEEPSEEK_API_KEY="",
         FEISHU_ALLOWED_OPEN_ID="ou_user",
         FEISHU_ALLOWED_CHAT_ID="oc_chat",
     )

@@ -252,8 +252,8 @@ Date: 2026-06-06
 - 数据库：SQLite，数据文件通过 Docker volume 或宿主机目录挂载持久化。
 - 数据库访问：SQLAlchemy + Alembic。
 - 调度器：APScheduler 内嵌在 FastAPI 进程中。
-- LLM：OpenAI API。
-- Agent 设计：第一版先实现轻量 agent layer，不直接引入重型多 agent 框架；代码保留 `LLMProvider` 抽象，后续可接 OpenAI Agents SDK、LangGraph、Pydantic AI 或其他框架。
+- LLM：DeepSeek API，通过 OpenAI SDK 兼容的 Chat Completions 接口接入。
+- Agent 设计：第一版先实现轻量 agent layer，不直接引入重型多 agent 框架；代码保留 `LLMProvider` 抽象，后续可接 DeepSeek Tool Calls、LangGraph、Pydantic AI 或其他框架。
 - 飞书接入：默认使用飞书官方 Python SDK 的长连接模式；webhook 加密回调仅作为备用模式。
 - 通知渠道：第一版实现 FeishuChannel，但业务层面向 NotificationChannel 抽象，便于后续接入其他通知渠道。
 - 用户模型：第一版单用户运行，配置中指定允许交互的飞书用户或会话；数据表仍保留 `user_id` 字段。
