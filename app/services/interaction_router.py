@@ -4,7 +4,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.agent.intents import IntentType
-from app.agent.openai_provider import OpenAIProvider
+from app.agent.openai_provider import AI_UNAVAILABLE_MESSAGE, OpenAIProvider, unavailable_intent
+from app.agent.provider import LLMProvider
 from app.channels.actions import ActionId
 from app.channels.base import InboundInteraction, NotificationChannel
 from app.config.settings import Settings
@@ -23,12 +24,13 @@ class InteractionRouter:
         db: Session,
         settings: Settings,
         channel: NotificationChannel | None = None,
+        llm: LLMProvider | None = None,
     ) -> None:
         self.db = db
         self.settings = settings
         self.channel = channel
         self.authz = AuthzService(settings)
-        self.llm = OpenAIProvider(settings)
+        self.llm = llm or OpenAIProvider(settings)
         self.renderer = MessageRenderer()
 
     async def handle(self, interaction: InboundInteraction) -> None:
@@ -50,11 +52,21 @@ class InteractionRouter:
             return
 
         task_service = TaskService(self.db)
-        parsed = await self.llm.parse_intent(
-            user_id=user.id,
-            text=interaction.text,
-            timezone=self.settings.app_timezone,
-        )
+        try:
+            parsed = await self.llm.parse_intent(
+                user_id=user.id,
+                text=interaction.text,
+                timezone=self.settings.app_timezone,
+            )
+        except Exception:
+            parsed = unavailable_intent()
+
+        if parsed.reply == AI_UNAVAILABLE_MESSAGE:
+            await self._reply(interaction, "小助手失联", AI_UNAVAILABLE_MESSAGE)
+            inbound.status = "processed"
+            self.db.commit()
+            return
+
         if parsed.intent == IntentType.COMPLETE_TASK:
             task = task_service.complete_most_relevant(user.id, parsed.target_title)
             if task:
