@@ -13,6 +13,7 @@ class FakeSdkChannel:
         self.handlers = {}
         self.started = False
         self.stopped = False
+        self.sent = []
 
     def on(self, name, handler):
         self.handlers[name] = handler
@@ -22,6 +23,10 @@ class FakeSdkChannel:
 
     async def disconnect(self):
         self.stopped = True
+
+    async def send(self, chat_id, payload):
+        self.sent.append((chat_id, payload))
+        return SimpleNamespace(success=True, message_id="om_reply", error=None)
 
 
 @dataclass
@@ -60,6 +65,7 @@ async def test_runner_normalizes_message_event(db_session: Session) -> None:
     assert row.channel_message_id == "om_1"
     assert row.sender_id == "ou_user"
     assert row.chat_id == "oc_chat"
+    assert sdk_channel.sent
 
 
 async def test_runner_normalizes_card_action_event(db_session: Session) -> None:
@@ -89,3 +95,4 @@ async def test_runner_normalizes_card_action_event(db_session: Session) -> None:
     row = db_session.query(InboundMessage).one()
     assert row.action_id == "ack_reminder"
     assert '"reminder_id": 1' in row.action_payload
+    assert sdk_channel.sent

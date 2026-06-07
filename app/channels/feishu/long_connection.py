@@ -7,6 +7,7 @@ import structlog
 from sqlalchemy.orm import Session
 
 from app.channels.base import InboundInteraction
+from app.channels.feishu.channel import FeishuChannel
 from app.channels.feishu.client import build_lark_channel
 from app.config.settings import Settings
 from app.db.session import SessionLocal
@@ -87,4 +88,9 @@ class FeishuLongConnectionRunner:
 
     async def _handle(self, interaction: InboundInteraction) -> None:
         with self.session_factory() as db:
-            await InteractionRouter(db=db, settings=self.settings).handle(interaction)
+            channel = FeishuChannel(self.settings, sdk_channel=self.sdk_channel)
+            await InteractionRouter(
+                db=db,
+                settings=self.settings,
+                channel=channel,
+            ).handle(interaction)
