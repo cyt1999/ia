@@ -8,6 +8,7 @@ from app.channels.base import InboundInteraction, SendResult
 from app.config.settings import Settings
 from app.models.enums import Importance
 from app.models.inbound_message import InboundMessage
+from app.models.reminder import Reminder
 from app.models.task import Task
 from app.schemas.reviews import ReviewParsedUpdate
 from app.schemas.tasks import TaskCreate
@@ -70,8 +71,12 @@ async def test_router_replies_after_creating_task(db_session: Session) -> None:
     )
 
     task = db_session.query(Task).one()
+    reminder = db_session.query(Reminder).one()
     inbound = db_session.query(InboundMessage).one()
     assert task.title == "客户报价"
+    assert reminder.task_id == task.id
+    assert reminder.title == "客户报价"
+    assert reminder.reminder_at == reminder.scheduled_start_at
     assert inbound.status == "processed"
     assert channel.sent[0][0] == "oc_chat"
     assert channel.sent[0][1].title == "已安排"

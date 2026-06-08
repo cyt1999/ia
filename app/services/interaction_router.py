@@ -96,6 +96,14 @@ class InteractionRouter:
         elif parsed.intent == IntentType.CREATE_TASK and parsed.task:
             parsed.task.user_id = user.id
             task = task_service.create_task(parsed.task)
+            ReminderService(self.db).create_for_task(
+                user_id=user.id,
+                task_id=task.id,
+                title=task.title,
+                planned_date=task.planned_date,
+                planned_time=task.planned_time,
+                timezone=user.timezone,
+            )
             parts = [f"我已安排「{task.title}」。"]
             if task.planned_date:
                 parts.append(f"日期：{task.planned_date}")

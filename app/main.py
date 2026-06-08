@@ -15,7 +15,7 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     configure_logging(settings.log_level)
     logger = structlog.get_logger(__name__)
-    scheduler = create_scheduler(settings.app_timezone)
+    scheduler = create_scheduler(settings.app_timezone, settings)
     scheduler.start()
     app.state.scheduler = scheduler
     feishu_runner = None

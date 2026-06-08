@@ -214,6 +214,10 @@ _INTENT_INSTRUCTIONS = """
 创建任务时：
 - task 必须是对象；其他 intent 时 task 必须是 null
 - task.user_id 使用输入里的 user_id
+- task.title 是用户真正要做的事，用短名词/动宾短语，不要照抄整句话
+- task.title 不要包含“提醒我、提醒、去、哦、哈”等请求包装或语气词
+- 例：“明天10点提醒我去健身哦” 的 title 是“健身”，不是“去健身”
+- 例：“等会12点提醒我吃饭哈” 的 title 是“吃饭”，不是“吃饭提醒”
 - planned_date 使用 YYYY-MM-DD，planned_time 使用 HH:MM:SS；没有明确日期或时间就填 null
 - “今天、明天、后天、下周”等相对日期必须基于输入里的 today 计算
 - importance 只能是 high、medium、low；默认 medium

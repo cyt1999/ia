@@ -43,6 +43,33 @@ class ReminderService:
         self.db.commit()
         return reminders
 
+    def create_for_task(
+        self,
+        *,
+        user_id: int,
+        task_id: int,
+        title: str,
+        planned_date: date | None,
+        planned_time: time | None,
+        timezone: str,
+    ) -> Reminder | None:
+        if planned_date is None or planned_time is None:
+            return None
+
+        start = combine_local(planned_date, planned_time, timezone)
+        reminder = Reminder(
+            user_id=user_id,
+            task_id=task_id,
+            kind=ReminderKind.TASK.value,
+            title=title,
+            scheduled_start_at=to_utc(start),
+            reminder_at=to_utc(start),
+        )
+        self.db.add(reminder)
+        self.db.commit()
+        self.db.refresh(reminder)
+        return reminder
+
     async def send_due(
         self,
         *,
