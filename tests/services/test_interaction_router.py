@@ -100,6 +100,14 @@ async def test_router_replies_with_current_task_list(db_session: Session, user) 
         )
     )
     service.create_task(TaskCreate(user_id=user.id, title="健身"))
+    service.create_task(
+        TaskCreate(
+            user_id=user.id,
+            title="过期任务",
+            planned_date=date(2000, 1, 1),
+            planned_time=time(9, 0),
+        )
+    )
     service.complete_most_relevant(user.id, "客户")
     channel = FakeChannel()
     settings = Settings(
@@ -122,6 +130,7 @@ async def test_router_replies_with_current_task_list(db_session: Session, user) 
     assert channel.sent[0][1].title == "当前任务"
     assert "健身" in channel.sent[0][1].plain_text
     assert "客户报价" not in channel.sent[0][1].plain_text
+    assert "过期任务" not in channel.sent[0][1].plain_text
 
 
 async def test_router_replies_unavailable_without_ai(db_session: Session) -> None:

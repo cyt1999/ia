@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.models.enums import TaskStatus
 from app.models.task import Task
 from app.schemas.tasks import TaskCreate, TaskSummary
-from app.utils.timezone import now_utc
+from app.utils.timezone import from_utc, now_utc
 
 
 class TaskService:
@@ -20,6 +20,7 @@ class TaskService:
             planned_date=data.planned_date,
             planned_time=data.planned_time,
             estimated_minutes=data.estimated_minutes,
+            recurrence_rule=data.recurrence_rule.value if data.recurrence_rule else None,
             source=data.source.value,
             notes=data.notes,
         )
@@ -50,6 +51,15 @@ class TaskService:
             Task.id,
         )
         return list(self.db.scalars(stmt))
+
+    def current_tasks(self, user_id: int, timezone: str) -> list[Task]:
+        local_now = from_utc(now_utc(), timezone)
+        tasks = self.active_tasks(user_id)
+        return [
+            task
+            for task in tasks
+            if self._is_current_or_future(task, local_now.date(), local_now.time())
+        ]
 
     def complete_most_relevant(self, user_id: int, title: str | None = None) -> Task | None:
         task = self._find_target(user_id, title)
@@ -88,9 +98,21 @@ class TaskService:
                 task_type=task.task_type,
                 status=task.status,
                 planned_time=task.planned_time,
+                recurrence_rule=task.recurrence_rule,
             )
             for task in tasks
         ]
+
+    def _is_current_or_future(self, task: Task, today, current_time) -> bool:
+        if task.planned_date is None:
+            return True
+        if task.planned_date > today:
+            return True
+        if task.planned_date < today:
+            return False
+        if task.planned_time is None:
+            return True
+        return task.planned_time >= current_time
 
     def _find_target(self, user_id: int, title: str | None) -> Task | None:
         stmt = select(Task).where(

@@ -39,6 +39,7 @@ async def test_deepseek_json_output_intent_is_used() -> None:
                 "planned_date": "2026-06-08",
                 "planned_time": "09:00:00",
                 "estimated_minutes": 120,
+                "recurrence_rule": None,
                 "source": "user",
                 "notes": None,
             },
@@ -66,6 +67,7 @@ async def test_deepseek_json_output_intent_is_used() -> None:
     assert "json" in kwargs["messages"][0]["content"].lower()
     assert "EXAMPLE JSON OUTPUT" in kwargs["messages"][0]["content"]
     assert "today=" in kwargs["messages"][1]["content"]
+    assert "now=" in kwargs["messages"][1]["content"]
     assert "明天10点提醒我去健身哦" in kwargs["messages"][0]["content"]
 
 
@@ -115,6 +117,39 @@ async def test_deepseek_json_output_list_tasks_intent_is_used() -> None:
     assert parsed.intent == IntentType.LIST_TASKS
     assert parsed.task is None
     assert "list_tasks" in kwargs["messages"][0]["content"]
+
+
+async def test_deepseek_json_output_recurring_task_is_used() -> None:
+    provider = DeepSeekProvider(Settings(DEEPSEEK_API_KEY="test-key"))
+    provider.client = FakeDeepSeekClient(
+        output={
+            "intent": "create_task",
+            "task": {
+                "user_id": 1,
+                "title": "开始工作",
+                "importance": "medium",
+                "task_type": "work",
+                "planned_date": "2026-06-09",
+                "planned_time": "09:00:00",
+                "estimated_minutes": None,
+                "recurrence_rule": "weekdays",
+                "source": "user",
+                "notes": None,
+            },
+            "target_title": None,
+            "reply": None,
+            "confidence": 0.9,
+        }
+    )
+
+    parsed = await provider.parse_intent(
+        user_id=1,
+        text="以后每个工作日早上9点提醒我开始工作",
+        timezone="Asia/Shanghai",
+    )
+
+    assert parsed.task is not None
+    assert parsed.task.recurrence_rule == "weekdays"
 
 
 class FakeDeepSeekClient:

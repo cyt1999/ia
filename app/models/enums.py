@@ -31,6 +31,11 @@ class TaskSource(StrEnum):
     SYSTEM = "system"
 
 
+class RecurrenceRule(StrEnum):
+    DAILY = "daily"
+    WEEKDAYS = "weekdays"
+
+
 class ReminderStatus(StrEnum):
     PENDING = "pending"
     SENT = "sent"
@@ -64,4 +69,3 @@ class InboundStatus(StrEnum):
     PROCESSED = "processed"
     IGNORED = "ignored"
     FAILED = "failed"
-

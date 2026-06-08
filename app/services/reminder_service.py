@@ -5,10 +5,11 @@ from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
 from app.channels.base import NotificationChannel
-from app.models.enums import ReminderKind, ReminderStatus
+from app.models.enums import ReminderKind, ReminderStatus, TaskStatus
 from app.models.reminder import Reminder
+from app.models.task import Task
 from app.services.message_renderer import MessageRenderer
-from app.utils.timezone import combine_local, sleep_midnight_for, to_utc
+from app.utils.timezone import combine_local, from_utc, sleep_midnight_for, to_utc
 
 
 class ReminderService:
@@ -76,6 +77,7 @@ class ReminderService:
         channel: NotificationChannel,
         chat_id: str,
         now: datetime,
+        timezone: str = "Asia/Shanghai",
     ) -> int:
         due = list(
             self.db.scalars(
@@ -103,6 +105,7 @@ class ReminderService:
             if result.ok:
                 reminder.status = ReminderStatus.SENT.value
                 reminder.next_retry_at = now + timedelta(minutes=10)
+                self._schedule_next_recurring_task_reminder(reminder, timezone)
                 sent += 1
         self.db.commit()
         return sent
@@ -164,3 +167,40 @@ class ReminderService:
             scheduled_start_at=to_utc(start),
             reminder_at=to_utc(reminder_at),
         )
+
+    def _schedule_next_recurring_task_reminder(
+        self, reminder: Reminder, timezone: str
+    ) -> None:
+        if reminder.task_id is None:
+            return
+        task = self.db.get(Task, reminder.task_id)
+        if (
+            task is None
+            or task.recurrence_rule is None
+            or task.status not in {TaskStatus.NOT_STARTED.value, TaskStatus.IN_PROGRESS.value}
+            or task.planned_time is None
+        ):
+            return
+
+        current_start = from_utc(reminder.scheduled_start_at, timezone)
+        next_day = self._next_recurrence_date(current_start.date(), task.recurrence_rule)
+        next_start = combine_local(next_day, task.planned_time, timezone)
+        task.planned_date = next_day
+        self.db.add(
+            Reminder(
+                user_id=task.user_id,
+                task_id=task.id,
+                kind=ReminderKind.TASK.value,
+                title=task.title,
+                scheduled_start_at=to_utc(next_start),
+                reminder_at=to_utc(next_start),
+            )
+        )
+
+    def _next_recurrence_date(self, current_day: date, recurrence_rule: str) -> date:
+        next_day = current_day + timedelta(days=1)
+        if recurrence_rule != "weekdays":
+            return next_day
+        while next_day.weekday() >= 5:
+            next_day += timedelta(days=1)
+        return next_day

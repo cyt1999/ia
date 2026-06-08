@@ -95,7 +95,7 @@ class InteractionRouter:
                     interaction, "没找到任务", "我没找到要取消的任务，你可以说得具体一点。"
                 )
         elif parsed.intent == IntentType.LIST_TASKS:
-            tasks = task_service.active_tasks(user.id)
+            tasks = task_service.current_tasks(user.id, user.timezone)
             await self._reply_message(
                 interaction,
                 self.renderer.task_list(title="当前任务", rows=self._task_rows(tasks)),
@@ -180,8 +180,17 @@ class InteractionRouter:
             elif task.planned_time:
                 when = task.planned_time.strftime("%H:%M")
 
-            rows.append(f"- {task.title}（{when}）" if when else f"- {task.title}")
+            recurrence = self._recurrence_label(task.recurrence_rule)
+            details = "，".join(part for part in [when, recurrence] if part)
+            rows.append(f"- {task.title}（{details}）" if details else f"- {task.title}")
         return rows
+
+    def _recurrence_label(self, recurrence_rule: str | None) -> str | None:
+        if recurrence_rule == "daily":
+            return "每天"
+        if recurrence_rule == "weekdays":
+            return "每个工作日"
+        return None
 
     def _record(
         self, interaction: InboundInteraction, user_id: int | None = None, status: str = "received"

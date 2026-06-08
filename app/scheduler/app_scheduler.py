@@ -33,4 +33,5 @@ async def send_due_reminders(settings: Settings) -> int:
             channel=FeishuChannel(settings),
             chat_id=chat_id,
             now=now_utc(),
+            timezone=settings.app_timezone,
         )

@@ -30,11 +30,12 @@ class DeepSeekProvider:
         if self.client is None:
             return unavailable_intent()
         try:
-            today = datetime.now(ZoneInfo(timezone)).date()
+            local_now = datetime.now(ZoneInfo(timezone))
             prompt = (
                 f"user_id={user_id}\n"
                 f"timezone={timezone}\n"
-                f"today={today.isoformat()}\n"
+                f"now={local_now.isoformat()}\n"
+                f"today={local_now.date().isoformat()}\n"
                 f"user_message={text}"
             )
             raw = await self._structured_json(
@@ -188,6 +189,7 @@ def _json_example(name: str) -> str:
                 "planned_date": "2026-06-08",
                 "planned_time": "09:00:00",
                 "estimated_minutes": 120,
+                "recurrence_rule": None,
                 "source": "user",
                 "notes": None,
             },
@@ -221,6 +223,9 @@ _INTENT_INSTRUCTIONS = """
 - 例：“等会12点提醒我吃饭哈” 的 title 是“吃饭”，不是“吃饭提醒”
 - planned_date 使用 YYYY-MM-DD，planned_time 使用 HH:MM:SS；没有明确日期或时间就填 null
 - “今天、明天、后天、下周”等相对日期必须基于输入里的 today 计算
+- recurrence_rule 表示重复规则：一次性任务填 null；“每天”填 daily；“每个工作日/工作日”填 weekdays
+- 周期任务的 planned_date 是下一次发生日期
+- 如果今天对应时间已经早于输入里的 now，就填下一个符合规则的日期
 - importance 只能是 high、medium、low；默认 medium
 - task_type 只能是 work、life、rest、sleep、review、temp_reminder；默认 work
 - source 使用 user
@@ -239,6 +244,7 @@ _REVIEW_INSTRUCTIONS = """
 
 _NULLABLE_STRING = {"type": ["string", "null"]}
 _NULLABLE_INTEGER = {"type": ["integer", "null"]}
+_NULLABLE_RECURRENCE_RULE = {"type": ["string", "null"], "enum": ["daily", "weekdays", None]}
 
 _TASK_SCHEMA: dict[str, Any] = {
     "type": ["object", "null"],
@@ -254,6 +260,7 @@ _TASK_SCHEMA: dict[str, Any] = {
         "planned_date": _NULLABLE_STRING,
         "planned_time": _NULLABLE_STRING,
         "estimated_minutes": _NULLABLE_INTEGER,
+        "recurrence_rule": _NULLABLE_RECURRENCE_RULE,
         "source": {"type": "string", "enum": ["user", "review", "carry_over", "system"]},
         "notes": _NULLABLE_STRING,
     },
@@ -265,6 +272,7 @@ _TASK_SCHEMA: dict[str, Any] = {
         "planned_date",
         "planned_time",
         "estimated_minutes",
+        "recurrence_rule",
         "source",
         "notes",
     ],
