@@ -42,6 +42,12 @@ class TaskService:
                 Task.user_id == user_id,
                 Task.status.in_([TaskStatus.NOT_STARTED.value, TaskStatus.IN_PROGRESS.value]),
             )
+        ).order_by(
+            Task.planned_date.is_(None),
+            Task.planned_date,
+            Task.planned_time.is_(None),
+            Task.planned_time,
+            Task.id,
         )
         return list(self.db.scalars(stmt))
 

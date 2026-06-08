@@ -9,6 +9,7 @@ from app.agent.intents import IntentType
 from app.agent.provider import LLMProvider
 from app.channels.actions import ActionId
 from app.channels.base import InboundInteraction, NotificationChannel
+from app.channels.messages import OutboundMessage
 from app.config.settings import Settings
 from app.models.inbound_message import InboundMessage
 from app.services.authz_service import AuthzService
@@ -93,6 +94,12 @@ class InteractionRouter:
                 await self._reply(
                     interaction, "没找到任务", "我没找到要取消的任务，你可以说得具体一点。"
                 )
+        elif parsed.intent == IntentType.LIST_TASKS:
+            tasks = task_service.active_tasks(user.id)
+            await self._reply_message(
+                interaction,
+                self.renderer.task_list(title="当前任务", rows=self._task_rows(tasks)),
+            )
         elif parsed.intent == IntentType.CREATE_TASK and parsed.task:
             parsed.task.user_id = user.id
             task = task_service.create_task(parsed.task)
@@ -137,6 +144,11 @@ class InteractionRouter:
             await self._reply(interaction, "今天跳过", "好，今天先不追这件事。")
 
     async def _reply(self, interaction: InboundInteraction, title: str, body: str) -> None:
+        await self._reply_message(interaction, self.renderer.text(title=title, body=body))
+
+    async def _reply_message(
+        self, interaction: InboundInteraction, message: OutboundMessage
+    ) -> None:
         if self.channel is None or not interaction.chat_id:
             self.logger.warning(
                 "reply_skipped",
@@ -146,18 +158,30 @@ class InteractionRouter:
                 message_id=interaction.message_id,
             )
             return
-        result = await self.channel.send(
-            interaction.chat_id, self.renderer.text(title=title, body=body)
-        )
+        result = await self.channel.send(interaction.chat_id, message)
         log = self.logger.info if result.ok else self.logger.warning
         log(
             "reply_sent" if result.ok else "reply_send_failed",
             chat_id=interaction.chat_id,
             message_id=interaction.message_id,
-            title=title,
+            title=message.title,
             provider_message_id=result.provider_message_id,
             error=result.error_summary,
         )
+
+    def _task_rows(self, tasks) -> list[str]:
+        rows = []
+        for task in tasks:
+            when = None
+            if task.planned_date and task.planned_time:
+                when = f"{task.planned_date} {task.planned_time:%H:%M}"
+            elif task.planned_date:
+                when = str(task.planned_date)
+            elif task.planned_time:
+                when = task.planned_time.strftime("%H:%M")
+
+            rows.append(f"- {task.title}（{when}）" if when else f"- {task.title}")
+        return rows
 
     def _record(
         self, interaction: InboundInteraction, user_id: int | None = None, status: str = "received"

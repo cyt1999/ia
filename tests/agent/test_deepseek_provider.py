@@ -93,6 +93,30 @@ async def test_deepseek_json_output_review_is_used() -> None:
     assert "review_update" in kwargs["messages"][0]["content"]
 
 
+async def test_deepseek_json_output_list_tasks_intent_is_used() -> None:
+    provider = DeepSeekProvider(Settings(DEEPSEEK_API_KEY="test-key"))
+    provider.client = FakeDeepSeekClient(
+        output={
+            "intent": "list_tasks",
+            "task": None,
+            "target_title": None,
+            "reply": None,
+            "confidence": 0.9,
+        }
+    )
+
+    parsed = await provider.parse_intent(
+        user_id=1,
+        text="目前有哪些任务",
+        timezone="Asia/Shanghai",
+    )
+
+    kwargs = provider.client.chat.completions.last_kwargs
+    assert parsed.intent == IntentType.LIST_TASKS
+    assert parsed.task is None
+    assert "list_tasks" in kwargs["messages"][0]["content"]
+
+
 class FakeDeepSeekClient:
     def __init__(self, *, output: dict | str) -> None:
         self.chat = FakeChat(output=output)

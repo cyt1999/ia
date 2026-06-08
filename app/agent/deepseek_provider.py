@@ -204,6 +204,7 @@ _INTENT_INSTRUCTIONS = """
 
 根据用户中文消息判断 intent：
 - create_task：用户要新增任务、安排事项、提醒未来要做的事
+- list_tasks：用户要查看当前任务、今天任务、待办事项或问“有哪些任务”
 - complete_task：用户表示完成了某个任务
 - postpone_task：用户要推迟任务
 - cancel_task：用户要取消/不做任务
@@ -225,6 +226,7 @@ _INTENT_INSTRUCTIONS = """
 - source 使用 user
 - target_title 用于完成、推迟、取消任务时匹配任务标题；没有就填 null
 - reply 可以给一条自然、简短、不机械的中文回应；创建/修改类可以填 null，让服务层生成确认文案
+- list_tasks 时 task 必须是 null，reply 可以填 null，让服务层从数据库生成任务列表
 """.strip()
 
 
@@ -276,6 +278,7 @@ _PARSED_INTENT_SCHEMA: dict[str, Any] = {
             "type": "string",
             "enum": [
                 "create_task",
+                "list_tasks",
                 "complete_task",
                 "postpone_task",
                 "cancel_task",

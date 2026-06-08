@@ -13,6 +13,7 @@ from app.models.task import Task
 from app.schemas.reviews import ReviewParsedUpdate
 from app.schemas.tasks import TaskCreate
 from app.services.interaction_router import InteractionRouter
+from app.services.task_service import TaskService
 
 
 class FakeChannel:
@@ -51,6 +52,11 @@ class BrokenLLM(FakeLLM):
         raise RuntimeError("openai unavailable")
 
 
+class ListTasksLLM(FakeLLM):
+    async def parse_intent(self, *, user_id: int, text: str, timezone: str) -> ParsedIntent:
+        return ParsedIntent(intent=IntentType.LIST_TASKS, confidence=0.9)
+
+
 async def test_router_replies_after_creating_task(db_session: Session) -> None:
     channel = FakeChannel()
     settings = Settings(
@@ -81,6 +87,41 @@ async def test_router_replies_after_creating_task(db_session: Session) -> None:
     assert channel.sent[0][0] == "oc_chat"
     assert channel.sent[0][1].title == "已安排"
     assert "客户报价" in channel.sent[0][1].plain_text
+
+
+async def test_router_replies_with_current_task_list(db_session: Session, user) -> None:
+    service = TaskService(db_session)
+    service.create_task(
+        TaskCreate(
+            user_id=user.id,
+            title="客户报价",
+            planned_date=date(2026, 6, 8),
+            planned_time=time(9, 0),
+        )
+    )
+    service.create_task(TaskCreate(user_id=user.id, title="健身"))
+    service.complete_most_relevant(user.id, "客户")
+    channel = FakeChannel()
+    settings = Settings(
+        DEEPSEEK_API_KEY="",
+        FEISHU_ALLOWED_OPEN_ID="ou_user",
+        FEISHU_ALLOWED_CHAT_ID="oc_chat",
+    )
+    interaction = InboundInteraction(
+        channel="feishu",
+        message_id="om_list",
+        sender_id="ou_user",
+        chat_id="oc_chat",
+        text="目前有哪些任务",
+    )
+
+    await InteractionRouter(db_session, settings, channel=channel, llm=ListTasksLLM()).handle(
+        interaction
+    )
+
+    assert channel.sent[0][1].title == "当前任务"
+    assert "健身" in channel.sent[0][1].plain_text
+    assert "客户报价" not in channel.sent[0][1].plain_text
 
 
 async def test_router_replies_unavailable_without_ai(db_session: Session) -> None:
