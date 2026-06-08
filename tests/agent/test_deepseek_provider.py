@@ -69,6 +69,7 @@ async def test_deepseek_json_output_intent_is_used() -> None:
     assert "today=" in kwargs["messages"][1]["content"]
     assert "now=" in kwargs["messages"][1]["content"]
     assert "明天10点提醒我去健身哦" in kwargs["messages"][0]["content"]
+    assert "memory 可在任何 intent 中填写" in kwargs["messages"][0]["content"]
 
 
 async def test_deepseek_json_output_review_is_used() -> None:
@@ -150,6 +151,30 @@ async def test_deepseek_json_output_recurring_task_is_used() -> None:
 
     assert parsed.task is not None
     assert parsed.task.recurrence_rule == "weekdays"
+
+
+async def test_deepseek_prompt_includes_markdown_memory(tmp_path) -> None:
+    memory_path = tmp_path / "memory.md"
+    memory_path.write_text("## 回复偏好\n\n- 任务名要提炼真正要做的事。", encoding="utf-8")
+    provider = DeepSeekProvider(
+        Settings(DEEPSEEK_API_KEY="test-key", MEMORY_FILE_PATH=str(memory_path))
+    )
+    provider.client = FakeDeepSeekClient(
+        output={
+            "intent": "list_tasks",
+            "task": None,
+            "target_title": None,
+            "memory": None,
+            "reply": None,
+            "confidence": 0.9,
+        }
+    )
+
+    await provider.parse_intent(user_id=1, text="当前有哪些待办？", timezone="Asia/Shanghai")
+
+    kwargs = provider.client.chat.completions.last_kwargs
+    assert "长期记忆" in kwargs["messages"][0]["content"]
+    assert "任务名要提炼真正要做的事" in kwargs["messages"][0]["content"]
 
 
 class FakeDeepSeekClient:

@@ -57,6 +57,31 @@ class ListTasksLLM(FakeLLM):
         return ParsedIntent(intent=IntentType.LIST_TASKS, confidence=0.9)
 
 
+class RememberLLM(FakeLLM):
+    async def parse_intent(self, *, user_id: int, text: str, timezone: str) -> ParsedIntent:
+        return ParsedIntent(
+            intent=IntentType.REMEMBER,
+            memory="任务名要提炼真正要做的事。",
+            confidence=0.9,
+        )
+
+
+class CreateTaskWithMemoryLLM(FakeLLM):
+    async def parse_intent(self, *, user_id: int, text: str, timezone: str) -> ParsedIntent:
+        return ParsedIntent(
+            intent=IntentType.CREATE_TASK,
+            task=TaskCreate(
+                user_id=user_id,
+                title="健身",
+                importance=Importance.MEDIUM,
+                planned_date=date(2026, 6, 9),
+                planned_time=time(10, 0),
+            ),
+            memory="任务名应提炼真正要做的事。",
+            confidence=0.9,
+        )
+
+
 async def test_router_replies_after_creating_task(db_session: Session) -> None:
     channel = FakeChannel()
     settings = Settings(
@@ -131,6 +156,59 @@ async def test_router_replies_with_current_task_list(db_session: Session, user) 
     assert "健身" in channel.sent[0][1].plain_text
     assert "客户报价" not in channel.sent[0][1].plain_text
     assert "过期任务" not in channel.sent[0][1].plain_text
+
+
+async def test_router_silently_remembers_preference_while_handling_task(
+    db_session: Session, tmp_path
+) -> None:
+    channel = FakeChannel()
+    memory_path = tmp_path / "memory.md"
+    settings = Settings(
+        DEEPSEEK_API_KEY="",
+        FEISHU_ALLOWED_OPEN_ID="ou_user",
+        FEISHU_ALLOWED_CHAT_ID="oc_chat",
+        MEMORY_FILE_PATH=str(memory_path),
+    )
+    interaction = InboundInteraction(
+        channel="feishu",
+        message_id="om_task_memory",
+        sender_id="ou_user",
+        chat_id="oc_chat",
+        text="明天10点提醒我去健身哦，这种任务名要叫健身。",
+    )
+
+    await InteractionRouter(
+        db_session, settings, channel=channel, llm=CreateTaskWithMemoryLLM()
+    ).handle(interaction)
+
+    assert "任务名应提炼真正要做的事" in memory_path.read_text(encoding="utf-8")
+    assert channel.sent[0][1].title == "已安排"
+    assert "健身" in channel.sent[0][1].plain_text
+
+
+async def test_router_remembers_user_preference(db_session: Session, tmp_path) -> None:
+    channel = FakeChannel()
+    memory_path = tmp_path / "memory.md"
+    settings = Settings(
+        DEEPSEEK_API_KEY="",
+        FEISHU_ALLOWED_OPEN_ID="ou_user",
+        FEISHU_ALLOWED_CHAT_ID="oc_chat",
+        MEMORY_FILE_PATH=str(memory_path),
+    )
+    interaction = InboundInteraction(
+        channel="feishu",
+        message_id="om_remember",
+        sender_id="ou_user",
+        chat_id="oc_chat",
+        text="记住任务名要提炼真正要做的事。",
+    )
+
+    await InteractionRouter(db_session, settings, channel=channel, llm=RememberLLM()).handle(
+        interaction
+    )
+
+    assert "任务名要提炼真正要做的事" in memory_path.read_text(encoding="utf-8")
+    assert channel.sent[0][1].title == "已记住"
 
 
 async def test_router_replies_unavailable_without_ai(db_session: Session) -> None:

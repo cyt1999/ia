@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from app.agent.intents import IntentType, ParsedIntent
 from app.config.settings import Settings
 from app.schemas.reviews import ReviewParsedUpdate
+from app.services.memory_service import MemoryService
 
 AI_UNAVAILABLE_MESSAGE = "当前小助手失联了，请稍后再试。"
 
@@ -25,6 +26,7 @@ class DeepSeekProvider:
             if settings.deepseek_api_key
             else None
         )
+        self.memory = MemoryService(settings)
 
     async def parse_intent(self, *, user_id: int, text: str, timezone: str) -> ParsedIntent:
         if self.client is None:
@@ -43,6 +45,7 @@ class DeepSeekProvider:
                 instructions=_INTENT_INSTRUCTIONS,
                 user_input=prompt,
                 schema=_PARSED_INTENT_SCHEMA,
+                memory=self.memory.read(),
             )
         except Exception:
             return unavailable_intent()
@@ -60,6 +63,7 @@ class DeepSeekProvider:
                 instructions=_REVIEW_INSTRUCTIONS,
                 user_input=text,
                 schema=_REVIEW_UPDATE_SCHEMA,
+                memory=self.memory.read(),
             )
             return ReviewParsedUpdate.model_validate(json.loads(raw))
         except Exception:
@@ -68,13 +72,17 @@ class DeepSeekProvider:
     async def reminder_copy(self, *, title: str, kind: str, context: str | None = None) -> str:
         if self.client is None:
             return _default_reminder_copy(title=title, kind=kind)
+        memory = self.memory.read()
         user_input = f"kind={kind}, title={title}, context={context or ''}"
+        system = "Write one short encouraging Chinese reminder. No lecture."
+        if memory:
+            system = f"{system}\n\n长期记忆：\n{memory}"
         response = await self.client.chat.completions.create(
             **self._chat_completion_kwargs(
                 messages=[
                     {
                         "role": "system",
-                        "content": "Write one short encouraging Chinese reminder. No lecture.",
+                        "content": system,
                     },
                     {"role": "user", "content": user_input},
                 ],
@@ -89,6 +97,7 @@ class DeepSeekProvider:
         instructions: str,
         user_input: str,
         schema: dict[str, Any],
+        memory: str = "",
     ) -> str:
         response = await self.client.chat.completions.create(
             **self._chat_completion_kwargs(
@@ -99,6 +108,7 @@ class DeepSeekProvider:
                             instructions=instructions,
                             name=name,
                             schema=schema,
+                            memory=memory,
                         ),
                     },
                     {"role": "user", "content": user_input},
@@ -153,9 +163,11 @@ def _chat_json_instructions(
     instructions: str,
     name: str,
     schema: dict[str, Any],
+    memory: str = "",
 ) -> str:
+    memory_block = f"\n\n长期记忆：\n{memory}" if memory else ""
     return (
-        f"{instructions}\n\n"
+        f"{instructions}{memory_block}\n\n"
         "你必须只输出一个 JSON 对象，不要输出 Markdown，不要输出代码块。"
         f"输出名称：{name}\n"
         f"JSON Schema：{json.dumps(schema, ensure_ascii=False)}\n"
@@ -194,6 +206,7 @@ def _json_example(name: str) -> str:
                 "notes": None,
             },
             "target_title": None,
+            "memory": None,
             "reply": None,
             "confidence": 0.92,
         },
@@ -207,6 +220,7 @@ _INTENT_INSTRUCTIONS = """
 根据用户中文消息判断 intent：
 - create_task：用户要新增任务、安排事项、提醒未来要做的事
 - list_tasks：用户要查看当前任务、今天任务、待办事项或问“有哪些任务”
+- remember：用户只是在表达一个需要长期保存的偏好、固定习惯、背景信息或助手行为规则
 - complete_task：用户表示完成了某个任务
 - postpone_task：用户要推迟任务
 - cancel_task：用户要取消/不做任务
@@ -230,8 +244,12 @@ _INTENT_INSTRUCTIONS = """
 - task_type 只能是 work、life、rest、sleep、review、temp_reminder；默认 work
 - source 使用 user
 - target_title 用于完成、推迟、取消任务时匹配任务标题；没有就填 null
+- memory 可在任何 intent 中填写，但只记录长期稳定偏好、固定习惯、用户背景或助手行为规则
+- 不要把一次性任务、一次性提醒、短期状态、普通聊天、完整原文写进 memory；不确定就填 null
+- 用户纠正助手行为时，应把纠正提炼成简短 memory，例如“任务名应提炼真正要做的事”
 - reply 可以给一条自然、简短、不机械的中文回应；创建/修改类可以填 null，让服务层生成确认文案
 - list_tasks 时 task 必须是 null，reply 可以填 null，让服务层从数据库生成任务列表
+- remember 只用于没有其他任务操作、主要是在表达长期偏好的消息；task 必须是 null
 """.strip()
 
 
@@ -287,6 +305,7 @@ _PARSED_INTENT_SCHEMA: dict[str, Any] = {
             "enum": [
                 "create_task",
                 "list_tasks",
+                "remember",
                 "complete_task",
                 "postpone_task",
                 "cancel_task",
@@ -297,10 +316,11 @@ _PARSED_INTENT_SCHEMA: dict[str, Any] = {
         },
         "task": _TASK_SCHEMA,
         "target_title": _NULLABLE_STRING,
+        "memory": _NULLABLE_STRING,
         "reply": _NULLABLE_STRING,
         "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
     },
-    "required": ["intent", "task", "target_title", "reply", "confidence"],
+    "required": ["intent", "task", "target_title", "memory", "reply", "confidence"],
 }
 
 _REVIEW_UPDATE_SCHEMA: dict[str, Any] = {

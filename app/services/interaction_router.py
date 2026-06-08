@@ -13,6 +13,7 @@ from app.channels.messages import OutboundMessage
 from app.config.settings import Settings
 from app.models.inbound_message import InboundMessage
 from app.services.authz_service import AuthzService
+from app.services.memory_service import MemoryService
 from app.services.message_renderer import MessageRenderer
 from app.services.reminder_service import ReminderService
 from app.services.task_service import TaskService
@@ -70,6 +71,9 @@ class InteractionRouter:
             self.db.commit()
             return
 
+        if parsed.memory:
+            MemoryService(self.settings).remember(parsed.memory)
+
         if parsed.intent == IntentType.COMPLETE_TASK:
             task = task_service.complete_most_relevant(user.id, parsed.target_title)
             if task:
@@ -100,6 +104,8 @@ class InteractionRouter:
                 interaction,
                 self.renderer.task_list(title="当前任务", rows=self._task_rows(tasks)),
             )
+        elif parsed.intent == IntentType.REMEMBER and parsed.memory:
+            await self._reply(interaction, "已记住", f"我会记住：{parsed.memory}")
         elif parsed.intent == IntentType.CREATE_TASK and parsed.task:
             parsed.task.user_id = user.id
             task = task_service.create_task(parsed.task)

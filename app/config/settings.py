@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     app_timezone: str = Field(default="Asia/Shanghai", alias="APP_TIMEZONE")
     database_url: str = Field(default="sqlite:///./data/assistant.db", alias="DATABASE_URL")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
+    memory_file_path: str = Field(default="data/memory.md", alias="MEMORY_FILE_PATH")
 
     deepseek_api_key: str = Field(default="", alias="DEEPSEEK_API_KEY")
     deepseek_base_url: str = Field(default="https://api.deepseek.com", alias="DEEPSEEK_BASE_URL")
