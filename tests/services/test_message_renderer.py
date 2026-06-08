@@ -24,3 +24,10 @@ def test_task_list_empty_fallback() -> None:
 
     assert "今天还没有安排" in message.plain_text
 
+
+def test_text_message_plain_text_omits_status_title() -> None:
+    message = MessageRenderer().text(title="已安排", body="我已安排「开始工作」。")
+
+    assert message.title == "已安排"
+    assert message.plain_text == "我已安排「开始工作」。"
+    assert not message.plain_text.startswith("已安排")

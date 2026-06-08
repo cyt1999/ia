@@ -1,5 +1,6 @@
 import json
 
+import structlog
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -32,6 +33,7 @@ class InteractionRouter:
         self.authz = AuthzService(settings)
         self.llm = llm or DeepSeekProvider(settings)
         self.renderer = MessageRenderer()
+        self.logger = structlog.get_logger(__name__)
 
     async def handle(self, interaction: InboundInteraction) -> None:
         if not self.authz.is_allowed(interaction):
@@ -128,8 +130,26 @@ class InteractionRouter:
 
     async def _reply(self, interaction: InboundInteraction, title: str, body: str) -> None:
         if self.channel is None or not interaction.chat_id:
+            self.logger.warning(
+                "reply_skipped",
+                reason="missing_channel_or_chat_id",
+                has_channel=self.channel is not None,
+                chat_id=interaction.chat_id,
+                message_id=interaction.message_id,
+            )
             return
-        await self.channel.send(interaction.chat_id, self.renderer.text(title=title, body=body))
+        result = await self.channel.send(
+            interaction.chat_id, self.renderer.text(title=title, body=body)
+        )
+        log = self.logger.info if result.ok else self.logger.warning
+        log(
+            "reply_sent" if result.ok else "reply_send_failed",
+            chat_id=interaction.chat_id,
+            message_id=interaction.message_id,
+            title=title,
+            provider_message_id=result.provider_message_id,
+            error=result.error_summary,
+        )
 
     def _record(
         self, interaction: InboundInteraction, user_id: int | None = None, status: str = "received"

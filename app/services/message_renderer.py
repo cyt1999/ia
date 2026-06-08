@@ -51,5 +51,4 @@ class MessageRenderer:
         )
 
     def text(self, *, title: str, body: str) -> OutboundMessage:
-        return OutboundMessage(title=title, body=body, plain_text=f"{title}\n\n{body}")
-
+        return OutboundMessage(title=title, body=body, plain_text=body)
