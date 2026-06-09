@@ -153,6 +153,79 @@ async def test_deepseek_json_output_recurring_task_is_used() -> None:
     assert parsed.task.recurrence_rule == "weekdays"
 
 
+async def test_deepseek_json_output_goal_is_used() -> None:
+    provider = DeepSeekProvider(Settings(DEEPSEEK_API_KEY="test-key"))
+    provider.client = FakeDeepSeekClient(
+        output={
+            "intent": "create_goal",
+            "task": None,
+            "goal": {
+                "user_id": 1,
+                "title": "存钱",
+                "metric_name": "存款",
+                "unit": "元",
+                "direction": "increase",
+                "baseline_value": None,
+                "current_value": None,
+                "target_value": 10000,
+                "target_delta": None,
+                "start_date": None,
+                "deadline": None,
+                "notes": None,
+            },
+            "goal_progress": None,
+            "target_title": None,
+            "memory": None,
+            "reply": None,
+            "confidence": 0.9,
+        }
+    )
+
+    parsed = await provider.parse_intent(
+        user_id=1,
+        text="我要存 1w 块钱",
+        timezone="Asia/Shanghai",
+    )
+
+    kwargs = provider.client.chat.completions.last_kwargs
+    assert parsed.intent == IntentType.CREATE_GOAL
+    assert parsed.goal is not None
+    assert parsed.goal.target_value == 10000
+    assert "create_goal" in kwargs["messages"][0]["content"]
+
+
+async def test_deepseek_json_output_goal_progress_is_used() -> None:
+    provider = DeepSeekProvider(Settings(DEEPSEEK_API_KEY="test-key"))
+    provider.client = FakeDeepSeekClient(
+        output={
+            "intent": "update_goal_progress",
+            "task": None,
+            "goal": None,
+            "goal_progress": {
+                "goal_title": "存钱",
+                "kind": "current_value",
+                "value": 2300,
+                "note": None,
+                "raw_text": "我现在存了 2300",
+            },
+            "target_title": None,
+            "memory": None,
+            "reply": None,
+            "confidence": 0.9,
+        }
+    )
+
+    parsed = await provider.parse_intent(
+        user_id=1,
+        text="我现在存了 2300",
+        timezone="Asia/Shanghai",
+    )
+
+    assert parsed.intent == IntentType.UPDATE_GOAL_PROGRESS
+    assert parsed.goal_progress is not None
+    assert parsed.goal_progress.value == 2300
+
+
 async def test_deepseek_prompt_includes_markdown_memory(tmp_path) -> None:
     memory_path = tmp_path / "memory.md"
     memory_path.write_text("## 回复偏好\n\n- 任务名要提炼真正要做的事。", encoding="utf-8")

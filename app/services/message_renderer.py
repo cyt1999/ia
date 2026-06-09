@@ -30,8 +30,15 @@ class MessageRenderer:
             related_reminder_id=reminder_id,
         )
 
-    def task_list(self, *, title: str, rows: list[str], body: str = "") -> OutboundMessage:
-        content = "\n".join(rows) if rows else "今天还没有安排。"
+    def task_list(
+        self,
+        *,
+        title: str,
+        rows: list[str],
+        body: str = "",
+        empty_text: str = "今天还没有安排。",
+    ) -> OutboundMessage:
+        content = "\n".join(rows) if rows else empty_text
         plain = f"{title}\n\n{content}"
         if body:
             plain = f"{plain}\n\n{body}"

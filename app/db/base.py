@@ -1,3 +1,4 @@
+from app.models.goal import Goal, GoalProgressEntry
 from app.models.inbound_message import InboundMessage
 from app.models.notification_attempt import NotificationAttempt
 from app.models.reminder import Reminder
@@ -7,10 +8,11 @@ from app.models.user import User
 
 __all__ = [
     "InboundMessage",
+    "Goal",
+    "GoalProgressEntry",
     "NotificationAttempt",
     "Reminder",
     "Review",
     "Task",
     "User",
 ]
-

@@ -36,6 +36,22 @@ class RecurrenceRule(StrEnum):
     WEEKDAYS = "weekdays"
 
 
+class GoalDirection(StrEnum):
+    INCREASE = "increase"
+    DECREASE = "decrease"
+
+
+class GoalStatus(StrEnum):
+    ACTIVE = "active"
+    COMPLETED = "completed"
+    ABANDONED = "abandoned"
+
+
+class GoalProgressKind(StrEnum):
+    CURRENT_VALUE = "current_value"
+    DELTA = "delta"
+
+
 class ReminderStatus(StrEnum):
     PENDING = "pending"
     SENT = "sent"

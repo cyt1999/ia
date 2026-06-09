@@ -6,10 +6,12 @@ from app.agent.deepseek_provider import AI_UNAVAILABLE_MESSAGE
 from app.agent.intents import IntentType, ParsedIntent
 from app.channels.base import InboundInteraction, SendResult
 from app.config.settings import Settings
-from app.models.enums import Importance
+from app.models.enums import GoalDirection, GoalProgressKind, Importance
+from app.models.goal import Goal, GoalProgressEntry
 from app.models.inbound_message import InboundMessage
 from app.models.reminder import Reminder
 from app.models.task import Task
+from app.schemas.goals import GoalCreate, GoalProgressUpdate
 from app.schemas.reviews import ReviewParsedUpdate
 from app.schemas.tasks import TaskCreate
 from app.services.interaction_router import InteractionRouter
@@ -78,6 +80,52 @@ class CreateTaskWithMemoryLLM(FakeLLM):
                 planned_time=time(10, 0),
             ),
             memory="任务名应提炼真正要做的事。",
+            confidence=0.9,
+        )
+
+
+class CreateGoalLLM(FakeLLM):
+    async def parse_intent(self, *, user_id: int, text: str, timezone: str) -> ParsedIntent:
+        return ParsedIntent(
+            intent=IntentType.CREATE_GOAL,
+            goal=GoalCreate(
+                user_id=user_id,
+                title="存钱",
+                metric_name="存款",
+                unit="元",
+                direction=GoalDirection.INCREASE,
+                target_value=10000,
+                start_date=date(2026, 6, 9),
+                deadline=date(2026, 8, 31),
+            ),
+            confidence=0.9,
+        )
+
+
+class UpdateGoalProgressLLM(FakeLLM):
+    async def parse_intent(self, *, user_id: int, text: str, timezone: str) -> ParsedIntent:
+        return ParsedIntent(
+            intent=IntentType.UPDATE_GOAL_PROGRESS,
+            goal_progress=GoalProgressUpdate(
+                goal_title="存钱",
+                kind=GoalProgressKind.CURRENT_VALUE,
+                value=2300,
+                raw_text=text,
+            ),
+            confidence=0.9,
+        )
+
+
+class ListGoalsLLM(FakeLLM):
+    async def parse_intent(self, *, user_id: int, text: str, timezone: str) -> ParsedIntent:
+        return ParsedIntent(intent=IntentType.LIST_GOALS, confidence=0.9)
+
+
+class GoalStatusLLM(FakeLLM):
+    async def parse_intent(self, *, user_id: int, text: str, timezone: str) -> ParsedIntent:
+        return ParsedIntent(
+            intent=IntentType.GOAL_STATUS,
+            target_title="存钱",
             confidence=0.9,
         )
 
@@ -184,6 +232,143 @@ async def test_router_silently_remembers_preference_while_handling_task(
     assert "任务名应提炼真正要做的事" in memory_path.read_text(encoding="utf-8")
     assert channel.sent[0][1].title == "已安排"
     assert "健身" in channel.sent[0][1].plain_text
+
+
+async def test_router_creates_goal(db_session: Session) -> None:
+    channel = FakeChannel()
+    settings = Settings(
+        DEEPSEEK_API_KEY="",
+        FEISHU_ALLOWED_OPEN_ID="ou_user",
+        FEISHU_ALLOWED_CHAT_ID="oc_chat",
+    )
+    interaction = InboundInteraction(
+        channel="feishu",
+        message_id="om_goal",
+        sender_id="ou_user",
+        chat_id="oc_chat",
+        text="我要存 1w 块钱",
+    )
+
+    await InteractionRouter(db_session, settings, channel=channel, llm=CreateGoalLLM()).handle(
+        interaction
+    )
+
+    goal = db_session.query(Goal).one()
+    assert goal.title == "存钱"
+    assert goal.target_value == 10000
+    assert goal.start_date == date(2026, 6, 9)
+    assert goal.deadline == date(2026, 8, 31)
+    assert channel.sent[0][1].title == "已创建目标"
+    assert "周期：2026-06-09 至 2026-08-31" in channel.sent[0][1].plain_text
+    assert "10000 元" in channel.sent[0][1].plain_text
+
+
+async def test_router_updates_goal_progress_and_keeps_history(
+    db_session: Session, user
+) -> None:
+    db_session.add(
+        Goal(
+            user_id=user.id,
+            title="存钱",
+            metric_name="存款",
+            unit="元",
+            direction="increase",
+            target_value=10000,
+            start_date=date(2026, 6, 9),
+            deadline=date(2026, 8, 31),
+            status="active",
+        )
+    )
+    db_session.commit()
+    channel = FakeChannel()
+    settings = Settings(
+        DEEPSEEK_API_KEY="",
+        FEISHU_ALLOWED_OPEN_ID="ou_user",
+        FEISHU_ALLOWED_CHAT_ID="oc_chat",
+    )
+    interaction = InboundInteraction(
+        channel="feishu",
+        message_id="om_goal_progress",
+        sender_id="ou_user",
+        chat_id="oc_chat",
+        text="我现在存了 2300",
+    )
+
+    await InteractionRouter(
+        db_session, settings, channel=channel, llm=UpdateGoalProgressLLM()
+    ).handle(interaction)
+
+    goal = db_session.query(Goal).one()
+    entry = db_session.query(GoalProgressEntry).one()
+    assert goal.current_value == 2300
+    assert entry.raw_text == "我现在存了 2300"
+    assert channel.sent[0][1].title == "已记录进度"
+    assert "完成度：23%" in channel.sent[0][1].plain_text
+    assert "进度记录" in channel.sent[0][1].plain_text
+
+
+async def test_router_lists_and_reports_goal_status(db_session: Session, user) -> None:
+    goal = Goal(
+        user_id=user.id,
+        title="存钱",
+        metric_name="存款",
+        unit="元",
+            direction="increase",
+            current_value=2300,
+            target_value=10000,
+            start_date=date(2026, 6, 9),
+            deadline=date(2026, 8, 31),
+            status="active",
+        )
+    db_session.add(goal)
+    db_session.flush()
+    db_session.add(
+        GoalProgressEntry(
+            goal_id=goal.id,
+            user_id=user.id,
+            kind="current_value",
+            value=2300,
+            raw_text="我现在存了 2300",
+        )
+    )
+    db_session.commit()
+    settings = Settings(
+        DEEPSEEK_API_KEY="",
+        FEISHU_ALLOWED_OPEN_ID="ou_user",
+        FEISHU_ALLOWED_CHAT_ID="oc_chat",
+    )
+    list_channel = FakeChannel()
+    status_channel = FakeChannel()
+
+    await InteractionRouter(
+        db_session, settings, channel=list_channel, llm=ListGoalsLLM()
+    ).handle(
+        InboundInteraction(
+            channel="feishu",
+            message_id="om_goal_list",
+            sender_id="ou_user",
+            chat_id="oc_chat",
+            text="我有哪些目标",
+        )
+    )
+    await InteractionRouter(
+        db_session, settings, channel=status_channel, llm=GoalStatusLLM()
+    ).handle(
+        InboundInteraction(
+            channel="feishu",
+            message_id="om_goal_status",
+            sender_id="ou_user",
+            chat_id="oc_chat",
+            text="我的存钱目标怎么样了",
+        )
+    )
+
+    assert list_channel.sent[0][1].title == "当前目标"
+    assert "存钱" in list_channel.sent[0][1].plain_text
+    assert "23%" in list_channel.sent[0][1].plain_text
+    assert status_channel.sent[0][1].title == "目标进度"
+    assert "还差 7700 元" in status_channel.sent[0][1].plain_text
+    assert "周期：2026-06-09 至 2026-08-31" in status_channel.sent[0][1].plain_text
 
 
 async def test_router_remembers_user_preference(db_session: Session, tmp_path) -> None:

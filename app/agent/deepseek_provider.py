@@ -205,6 +205,8 @@ def _json_example(name: str) -> str:
                 "source": "user",
                 "notes": None,
             },
+            "goal": None,
+            "goal_progress": None,
             "target_title": None,
             "memory": None,
             "reply": None,
@@ -220,6 +222,10 @@ _INTENT_INSTRUCTIONS = """
 根据用户中文消息判断 intent：
 - create_task：用户要新增任务、安排事项、提醒未来要做的事
 - list_tasks：用户要查看当前任务、今天任务、待办事项或问“有哪些任务”
+- create_goal：用户要设定长期目标，例如存钱、减重、读书、运动目标
+- update_goal_progress：用户反馈某个目标的最新数值或阶段进度
+- list_goals：用户要查看当前有哪些目标
+- goal_status：用户要查看某个目标的进展、历史或还差多少
 - remember：用户只是在表达一个需要长期保存的偏好、固定习惯、背景信息或助手行为规则
 - complete_task：用户表示完成了某个任务
 - postpone_task：用户要推迟任务
@@ -250,6 +256,28 @@ _INTENT_INSTRUCTIONS = """
 - reply 可以给一条自然、简短、不机械的中文回应；创建/修改类可以填 null，让服务层生成确认文案
 - list_tasks 时 task 必须是 null，reply 可以填 null，让服务层从数据库生成任务列表
 - remember 只用于没有其他任务操作、主要是在表达长期偏好的消息；task 必须是 null
+
+创建目标时：
+- goal 必须是对象；非 create_goal 时 goal 必须是 null
+- goal.user_id 使用输入里的 user_id
+- title 是目标短名称，例如“存钱”“减肥”
+- metric_name 是被跟踪的指标，例如“存款”“体重”“减重”
+- unit 是单位，例如“元”“斤”“kg”“本”
+- direction 只能是 increase 或 decrease；存钱是 increase，体重下降是 decrease
+- “我要存 1w 块钱”：target_value=10000，direction=increase，unit=元
+- “我要减肥 30 斤”：target_delta=30，direction=decrease
+- 如果没有当前体重，baseline_value 和 current_value 填 null
+- 如果用户同时给了起点或当前值，也填 baseline_value/current_value
+- start_date 是目标开始日期；用户没明确说就填 null，让服务层默认今天
+- deadline 是目标截止日期；“8月31号之前/三个月内/年底前”这类时间必须基于 today 解析
+
+更新目标进度时：
+- goal_progress 必须是对象；非 update_goal_progress 时 goal_progress 必须是 null
+- goal_progress.goal_title 是用户提到的目标短名；没提但上下文明确时可填 null 让服务层匹配最相关目标
+- kind 只能是 current_value 或 delta
+- 用户说“我现在存了 2300”“今天 176 斤”，kind=current_value，value 填当前数值
+- 用户说“这周又存了 500”，kind=delta，value 填增量
+- raw_text 填用户原话
 """.strip()
 
 
@@ -263,6 +291,52 @@ _REVIEW_INSTRUCTIONS = """
 _NULLABLE_STRING = {"type": ["string", "null"]}
 _NULLABLE_INTEGER = {"type": ["integer", "null"]}
 _NULLABLE_RECURRENCE_RULE = {"type": ["string", "null"], "enum": ["daily", "weekdays", None]}
+
+_GOAL_SCHEMA: dict[str, Any] = {
+    "type": ["object", "null"],
+    "additionalProperties": False,
+    "properties": {
+        "user_id": {"type": "integer"},
+        "title": {"type": "string"},
+        "metric_name": {"type": "string"},
+        "unit": {"type": "string"},
+        "direction": {"type": "string", "enum": ["increase", "decrease"]},
+        "baseline_value": {"type": ["number", "null"]},
+        "current_value": {"type": ["number", "null"]},
+        "target_value": {"type": ["number", "null"]},
+        "target_delta": {"type": ["number", "null"]},
+        "start_date": _NULLABLE_STRING,
+        "deadline": _NULLABLE_STRING,
+        "notes": _NULLABLE_STRING,
+    },
+    "required": [
+        "user_id",
+        "title",
+        "metric_name",
+        "unit",
+        "direction",
+        "baseline_value",
+        "current_value",
+        "target_value",
+        "target_delta",
+        "start_date",
+        "deadline",
+        "notes",
+    ],
+}
+
+_GOAL_PROGRESS_SCHEMA: dict[str, Any] = {
+    "type": ["object", "null"],
+    "additionalProperties": False,
+    "properties": {
+        "goal_title": _NULLABLE_STRING,
+        "kind": {"type": "string", "enum": ["current_value", "delta"]},
+        "value": {"type": "number"},
+        "note": _NULLABLE_STRING,
+        "raw_text": _NULLABLE_STRING,
+    },
+    "required": ["goal_title", "kind", "value", "note", "raw_text"],
+}
 
 _TASK_SCHEMA: dict[str, Any] = {
     "type": ["object", "null"],
@@ -305,6 +379,10 @@ _PARSED_INTENT_SCHEMA: dict[str, Any] = {
             "enum": [
                 "create_task",
                 "list_tasks",
+                "create_goal",
+                "update_goal_progress",
+                "list_goals",
+                "goal_status",
                 "remember",
                 "complete_task",
                 "postpone_task",
@@ -315,12 +393,23 @@ _PARSED_INTENT_SCHEMA: dict[str, Any] = {
             ],
         },
         "task": _TASK_SCHEMA,
+        "goal": _GOAL_SCHEMA,
+        "goal_progress": _GOAL_PROGRESS_SCHEMA,
         "target_title": _NULLABLE_STRING,
         "memory": _NULLABLE_STRING,
         "reply": _NULLABLE_STRING,
         "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
     },
-    "required": ["intent", "task", "target_title", "memory", "reply", "confidence"],
+    "required": [
+        "intent",
+        "task",
+        "goal",
+        "goal_progress",
+        "target_title",
+        "memory",
+        "reply",
+        "confidence",
+    ],
 }
 
 _REVIEW_UPDATE_SCHEMA: dict[str, Any] = {

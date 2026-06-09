@@ -13,6 +13,7 @@ from app.channels.messages import OutboundMessage
 from app.config.settings import Settings
 from app.models.inbound_message import InboundMessage
 from app.services.authz_service import AuthzService
+from app.services.goal_service import GoalService
 from app.services.memory_service import MemoryService
 from app.services.message_renderer import MessageRenderer
 from app.services.reminder_service import ReminderService
@@ -104,6 +105,52 @@ class InteractionRouter:
                 interaction,
                 self.renderer.task_list(title="当前任务", rows=self._task_rows(tasks)),
             )
+        elif parsed.intent == IntentType.LIST_GOALS:
+            goals = GoalService(self.db).active_goals(user.id)
+            await self._reply_message(
+                interaction,
+                self.renderer.task_list(
+                    title="当前目标",
+                    rows=self._goal_rows(goals),
+                    empty_text="现在还没有目标。",
+                ),
+            )
+        elif parsed.intent == IntentType.GOAL_STATUS:
+            goal_service = GoalService(self.db)
+            goal = goal_service.target_goal(user.id, parsed.target_title)
+            if goal:
+                await self._reply(
+                    interaction,
+                    "目标进度",
+                    self._goal_status_body(goal_service, goal),
+                )
+            else:
+                await self._reply(
+                    interaction,
+                    "没找到目标",
+                    "我没找到这个目标，你可以说得具体一点。",
+                )
+        elif parsed.intent == IntentType.CREATE_GOAL and parsed.goal:
+            parsed.goal.user_id = user.id
+            goal = GoalService(self.db).create_goal(parsed.goal, timezone=user.timezone)
+            await self._reply(interaction, "已创建目标", self._goal_created_body(goal))
+        elif parsed.intent == IntentType.UPDATE_GOAL_PROGRESS and parsed.goal_progress:
+            try:
+                goal, _entry = GoalService(self.db).update_progress(
+                    user.id, parsed.goal_progress
+                )
+            except ValueError:
+                await self._reply(
+                    interaction,
+                    "没找到目标",
+                    "我没找到要更新的目标，你可以说得具体一点。",
+                )
+            else:
+                await self._reply(
+                    interaction,
+                    "已记录进度",
+                    self._goal_status_body(GoalService(self.db), goal),
+                )
         elif parsed.intent == IntentType.REMEMBER and parsed.memory:
             await self._reply(interaction, "已记住", f"我会记住：{parsed.memory}")
         elif parsed.intent == IntentType.CREATE_TASK and parsed.task:
@@ -197,6 +244,70 @@ class InteractionRouter:
         if recurrence_rule == "weekdays":
             return "每个工作日"
         return None
+
+    def _goal_rows(self, goals) -> list[str]:
+        service = GoalService(self.db)
+        rows = []
+        for goal in goals:
+            snapshot = service.status_for(goal)
+            percent = self._percent_label(snapshot.percent)
+            period = self._goal_period(goal)
+            details = "，".join(part for part in [percent, period] if part)
+            rows.append(f"- {goal.title}：{snapshot.progress_text}（{details}）")
+        return rows
+
+    def _goal_created_body(self, goal) -> str:
+        rows = [f"我会帮你跟踪「{goal.title}」。"]
+        period = self._goal_period(goal)
+        if period:
+            rows.append(f"周期：{period}")
+        if goal.target_value is not None:
+            rows.append(f"目标：{self._format_number(goal.target_value)} {goal.unit}")
+        elif goal.target_delta is not None:
+            target_delta = self._format_number(goal.target_delta)
+            rows.append(f"目标：{goal.metric_name} {target_delta} {goal.unit}")
+        if goal.current_value is not None:
+            rows.append(f"当前：{self._format_number(goal.current_value)} {goal.unit}")
+        elif goal.direction == "decrease":
+            rows.append("还需要你告诉我当前数值，我才能计算进度。")
+        return "\n".join(rows)
+
+    def _goal_status_body(self, goal_service: GoalService, goal) -> str:
+        snapshot = goal_service.status_for(goal)
+        rows = [
+            f"「{goal.title}」",
+            f"周期：{self._goal_period(goal) or '未设置'}",
+            snapshot.progress_text,
+            f"完成度：{self._percent_label(snapshot.percent)}",
+        ]
+        if snapshot.remaining_text:
+            rows.append(snapshot.remaining_text)
+        entries = goal_service.progress_entries(goal.id)
+        if entries:
+            rows.append("进度记录：")
+            for entry in entries[-5:]:
+                value = self._format_number(entry.value)
+                rows.append(f"- {entry.recorded_at:%Y-%m-%d}：{value} {goal.unit}")
+        return "\n".join(rows)
+
+    def _percent_label(self, percent: float | None) -> str:
+        if percent is None:
+            return "暂无"
+        return f"{self._format_number(percent)}%"
+
+    def _goal_period(self, goal) -> str | None:
+        if goal.start_date and goal.deadline:
+            return f"{goal.start_date} 至 {goal.deadline}"
+        if goal.start_date:
+            return f"{goal.start_date} 开始"
+        if goal.deadline:
+            return f"截止 {goal.deadline}"
+        return None
+
+    def _format_number(self, value: float) -> str:
+        if value == int(value):
+            return str(int(value))
+        return f"{value:.1f}".rstrip("0").rstrip(".")
 
     def _record(
         self, interaction: InboundInteraction, user_id: int | None = None, status: str = "received"
