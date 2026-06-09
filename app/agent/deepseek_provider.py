@@ -205,6 +205,7 @@ def _json_example(name: str) -> str:
                 "source": "user",
                 "notes": None,
             },
+            "tasks": None,
             "goal": None,
             "goal_progress": None,
             "target_title": None,
@@ -234,8 +235,23 @@ _INTENT_INSTRUCTIONS = """
 - small_talk：用户只是聊天、吐槽、表达状态
 - unknown：无法确定
 
+优先级规则：
+- 只要用户表达“提醒我/告诉我/叫我/安排”在某个时间做某事，就是 create_task，不是 remember
+- 带“每天/每个工作日/以后每...”和具体时间的提醒，是周期任务 create_task
+- 不要因为周期任务是长期规则就归为 remember
+- 例：“每天早上9点告诉我当天要做的事情，还有当前的目标”
+  是 create_task，title 是“查看当天任务和目标”，recurrence_rule 是 daily
+- 上一条例子的 planned_time 是 09:00:00
+- 例：“每天晚上11点告诉我当天做了什么，做一个总结复盘”
+  是 create_task，title 是“当日总结复盘”，task_type 是 review
+- 上一条例子的 recurrence_rule 是 daily，planned_time 是 23:00:00
+- 用户在一句话里设置多个不同时间的提醒时，intent 仍然是 create_task
+- 多个提醒输出到 tasks 数组，task 填 null；不要改成 remember
+
 创建任务时：
 - task 必须是对象；其他 intent 时 task 必须是 null
+- 如果只有一个任务，使用 task，tasks 填 null
+- 如果有多个任务，task 填 null，tasks 输出所有任务对象
 - task.user_id 使用输入里的 user_id
 - task.title 是用户真正要做的事，用短名词/动宾短语，不要照抄整句话
 - task.title 不要包含“提醒我、提醒、去、哦、哈”等请求包装或语气词
@@ -252,6 +268,7 @@ _INTENT_INSTRUCTIONS = """
 - target_title 用于完成、推迟、取消任务时匹配任务标题；没有就填 null
 - memory 可在任何 intent 中填写，但只记录长期稳定偏好、固定习惯、用户背景或助手行为规则
 - 不要把一次性任务、一次性提醒、短期状态、普通聊天、完整原文写进 memory；不确定就填 null
+- 不要把“每天几点提醒/告诉我做什么”写进 memory；这类必须建成带 recurrence_rule 的 task
 - 用户纠正助手行为时，应把纠正提炼成简短 memory，例如“任务名应提炼真正要做的事”
 - reply 可以给一条自然、简短、不机械的中文回应；创建/修改类可以填 null，让服务层生成确认文案
 - list_tasks 时 task 必须是 null，reply 可以填 null，让服务层从数据库生成任务列表
@@ -393,6 +410,10 @@ _PARSED_INTENT_SCHEMA: dict[str, Any] = {
             ],
         },
         "task": _TASK_SCHEMA,
+        "tasks": {
+            "type": ["array", "null"],
+            "items": _TASK_SCHEMA,
+        },
         "goal": _GOAL_SCHEMA,
         "goal_progress": _GOAL_PROGRESS_SCHEMA,
         "target_title": _NULLABLE_STRING,
@@ -403,6 +424,7 @@ _PARSED_INTENT_SCHEMA: dict[str, Any] = {
     "required": [
         "intent",
         "task",
+        "tasks",
         "goal",
         "goal_progress",
         "target_title",

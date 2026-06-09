@@ -120,6 +120,33 @@ async def test_deepseek_json_output_list_tasks_intent_is_used() -> None:
     assert "list_tasks" in kwargs["messages"][0]["content"]
 
 
+async def test_deepseek_json_output_accepts_null_tasks() -> None:
+    provider = DeepSeekProvider(Settings(DEEPSEEK_API_KEY="test-key"))
+    provider.client = FakeDeepSeekClient(
+        output={
+            "intent": "small_talk",
+            "task": None,
+            "tasks": None,
+            "goal": None,
+            "goal_progress": None,
+            "target_title": None,
+            "memory": None,
+            "reply": "你好呀",
+            "confidence": 0.9,
+        }
+    )
+
+    parsed = await provider.parse_intent(
+        user_id=1,
+        text="你好呀",
+        timezone="Asia/Shanghai",
+    )
+
+    assert parsed.intent == IntentType.SMALL_TALK
+    assert parsed.tasks is None
+    assert parsed.reply == "你好呀"
+
+
 async def test_deepseek_json_output_recurring_task_is_used() -> None:
     provider = DeepSeekProvider(Settings(DEEPSEEK_API_KEY="test-key"))
     provider.client = FakeDeepSeekClient(
@@ -149,8 +176,65 @@ async def test_deepseek_json_output_recurring_task_is_used() -> None:
         timezone="Asia/Shanghai",
     )
 
+    kwargs = provider.client.chat.completions.last_kwargs
     assert parsed.task is not None
     assert parsed.task.recurrence_rule == "weekdays"
+    assert "每天早上9点告诉我当天要做的事情" in kwargs["messages"][0]["content"]
+    assert "不要把“每天几点提醒/告诉我做什么”写进 memory" in kwargs["messages"][0]["content"]
+
+
+async def test_deepseek_json_output_multiple_recurring_tasks_is_used() -> None:
+    provider = DeepSeekProvider(Settings(DEEPSEEK_API_KEY="test-key"))
+    provider.client = FakeDeepSeekClient(
+        output={
+            "intent": "create_task",
+            "task": None,
+            "tasks": [
+                {
+                    "user_id": 1,
+                    "title": "查看当天任务和目标",
+                    "importance": "medium",
+                    "task_type": "work",
+                    "planned_date": "2026-06-09",
+                    "planned_time": "09:00:00",
+                    "estimated_minutes": None,
+                    "recurrence_rule": "daily",
+                    "source": "user",
+                    "notes": None,
+                },
+                {
+                    "user_id": 1,
+                    "title": "当日总结复盘",
+                    "importance": "medium",
+                    "task_type": "review",
+                    "planned_date": "2026-06-09",
+                    "planned_time": "23:00:00",
+                    "estimated_minutes": None,
+                    "recurrence_rule": "daily",
+                    "source": "user",
+                    "notes": None,
+                },
+            ],
+            "goal": None,
+            "goal_progress": None,
+            "target_title": None,
+            "memory": None,
+            "reply": None,
+            "confidence": 0.9,
+        }
+    )
+
+    parsed = await provider.parse_intent(
+        user_id=1,
+        text="每天早上9点告诉我当天要做的事情，还有当前的目标。每天晚上11点总结复盘。",
+        timezone="Asia/Shanghai",
+    )
+
+    assert parsed.intent == IntentType.CREATE_TASK
+    assert parsed.task is None
+    assert len(parsed.tasks) == 2
+    assert parsed.tasks[0].title == "查看当天任务和目标"
+    assert parsed.tasks[1].title == "当日总结复盘"
 
 
 async def test_deepseek_json_output_goal_is_used() -> None:

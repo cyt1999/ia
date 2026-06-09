@@ -25,6 +25,7 @@ class IntentType(StrEnum):
 class ParsedIntent(BaseModel):
     intent: IntentType
     task: TaskCreate | None = None
+    tasks: list[TaskCreate] | None = None
     goal: GoalCreate | None = None
     goal_progress: GoalProgressUpdate | None = None
     target_title: str | None = None

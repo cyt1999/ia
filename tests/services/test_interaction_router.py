@@ -6,7 +6,13 @@ from app.agent.deepseek_provider import AI_UNAVAILABLE_MESSAGE
 from app.agent.intents import IntentType, ParsedIntent
 from app.channels.base import InboundInteraction, SendResult
 from app.config.settings import Settings
-from app.models.enums import GoalDirection, GoalProgressKind, Importance
+from app.models.enums import (
+    GoalDirection,
+    GoalProgressKind,
+    Importance,
+    RecurrenceRule,
+    TaskType,
+)
 from app.models.goal import Goal, GoalProgressEntry
 from app.models.inbound_message import InboundMessage
 from app.models.reminder import Reminder
@@ -80,6 +86,32 @@ class CreateTaskWithMemoryLLM(FakeLLM):
                 planned_time=time(10, 0),
             ),
             memory="任务名应提炼真正要做的事。",
+            confidence=0.9,
+        )
+
+
+class CreateDailyPlanningAndReviewTasksLLM(FakeLLM):
+    async def parse_intent(self, *, user_id: int, text: str, timezone: str) -> ParsedIntent:
+        return ParsedIntent(
+            intent=IntentType.CREATE_TASK,
+            tasks=[
+                TaskCreate(
+                    user_id=user_id,
+                    title="查看当天任务和目标",
+                    task_type=TaskType.WORK,
+                    planned_date=date(2026, 6, 9),
+                    planned_time=time(9, 0),
+                    recurrence_rule=RecurrenceRule.DAILY,
+                ),
+                TaskCreate(
+                    user_id=user_id,
+                    title="当日总结复盘",
+                    task_type=TaskType.REVIEW,
+                    planned_date=date(2026, 6, 9),
+                    planned_time=time(23, 0),
+                    recurrence_rule=RecurrenceRule.DAILY,
+                ),
+            ],
             confidence=0.9,
         )
 
@@ -232,6 +264,36 @@ async def test_router_silently_remembers_preference_while_handling_task(
     assert "任务名应提炼真正要做的事" in memory_path.read_text(encoding="utf-8")
     assert channel.sent[0][1].title == "已安排"
     assert "健身" in channel.sent[0][1].plain_text
+
+
+async def test_router_confirms_multiple_recurring_task_rules(db_session: Session) -> None:
+    channel = FakeChannel()
+    settings = Settings(
+        DEEPSEEK_API_KEY="",
+        FEISHU_ALLOWED_OPEN_ID="ou_user",
+        FEISHU_ALLOWED_CHAT_ID="oc_chat",
+    )
+    interaction = InboundInteraction(
+        channel="feishu",
+        message_id="om_daily_review",
+        sender_id="ou_user",
+        chat_id="oc_chat",
+        text="每天晚上11点告诉我当天做了什么，做一个总结复盘。",
+    )
+
+    await InteractionRouter(
+        db_session, settings, channel=channel, llm=CreateDailyPlanningAndReviewTasksLLM()
+    ).handle(interaction)
+
+    tasks = db_session.query(Task).order_by(Task.planned_time).all()
+    assert [task.title for task in tasks] == ["查看当天任务和目标", "当日总结复盘"]
+    assert [task.recurrence_rule for task in tasks] == ["daily", "daily"]
+    assert db_session.query(Reminder).count() == 2
+    assert channel.sent[0][1].title == "已安排"
+    assert "我已安排 2 个任务" in channel.sent[0][1].plain_text
+    assert "查看当天任务和目标" in channel.sent[0][1].plain_text
+    assert "当日总结复盘" in channel.sent[0][1].plain_text
+    assert "重复：每天" in channel.sent[0][1].plain_text
 
 
 async def test_router_creates_goal(db_session: Session) -> None:

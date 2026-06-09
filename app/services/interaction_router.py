@@ -153,25 +153,22 @@ class InteractionRouter:
                 )
         elif parsed.intent == IntentType.REMEMBER and parsed.memory:
             await self._reply(interaction, "已记住", f"我会记住：{parsed.memory}")
-        elif parsed.intent == IntentType.CREATE_TASK and parsed.task:
-            parsed.task.user_id = user.id
-            task = task_service.create_task(parsed.task)
-            ReminderService(self.db).create_for_task(
-                user_id=user.id,
-                task_id=task.id,
-                title=task.title,
-                planned_date=task.planned_date,
-                planned_time=task.planned_time,
-                timezone=user.timezone,
-            )
-            parts = [f"我已安排「{task.title}」。"]
-            if task.planned_date:
-                parts.append(f"日期：{task.planned_date}")
-            if task.planned_time:
-                parts.append(f"时间：{task.planned_time.strftime('%H:%M')}")
-            if task.estimated_minutes:
-                parts.append(f"预计：{task.estimated_minutes} 分钟")
-            await self._reply(interaction, "已安排", "\n".join(parts))
+        elif parsed.intent == IntentType.CREATE_TASK and (parsed.task or parsed.tasks):
+            task_inputs = parsed.tasks or ([parsed.task] if parsed.task else [])
+            tasks = []
+            for task_input in task_inputs:
+                task_input.user_id = user.id
+                task = task_service.create_task(task_input)
+                ReminderService(self.db).create_for_task(
+                    user_id=user.id,
+                    task_id=task.id,
+                    title=task.title,
+                    planned_date=task.planned_date,
+                    planned_time=task.planned_time,
+                    timezone=user.timezone,
+                )
+                tasks.append(task)
+            await self._reply(interaction, "已安排", self._task_created_body(tasks))
         elif parsed.intent == IntentType.ACKNOWLEDGE:
             await self._reply(interaction, "收到", "好，我记下了。")
         else:
@@ -244,6 +241,32 @@ class InteractionRouter:
         if recurrence_rule == "weekdays":
             return "每个工作日"
         return None
+
+    def _task_created_body(self, tasks) -> str:
+        if len(tasks) == 1:
+            task = tasks[0]
+            parts = [f"我已安排「{task.title}」。"]
+            parts.extend(self._task_detail_lines(task))
+            return "\n".join(parts)
+
+        rows = [f"我已安排 {len(tasks)} 个任务。"]
+        for task in tasks:
+            rows.append(f"- {task.title}")
+            rows.extend(f"  {line}" for line in self._task_detail_lines(task))
+        return "\n".join(rows)
+
+    def _task_detail_lines(self, task) -> list[str]:
+        parts = []
+        if task.planned_date:
+            parts.append(f"日期：{task.planned_date}")
+        if task.planned_time:
+            parts.append(f"时间：{task.planned_time.strftime('%H:%M')}")
+        recurrence = self._recurrence_label(task.recurrence_rule)
+        if recurrence:
+            parts.append(f"重复：{recurrence}")
+        if task.estimated_minutes:
+            parts.append(f"预计：{task.estimated_minutes} 分钟")
+        return parts
 
     def _goal_rows(self, goals) -> list[str]:
         service = GoalService(self.db)
