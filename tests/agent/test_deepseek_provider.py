@@ -243,6 +243,47 @@ async def test_deepseek_json_output_multiple_recurring_tasks_is_used() -> None:
     assert parsed.tasks[1].source == "system"
 
 
+async def test_deepseek_json_output_task_update_is_used() -> None:
+    provider = DeepSeekProvider(Settings(DEEPSEEK_API_KEY="test-key"))
+    provider.client = FakeDeepSeekClient(
+        output={
+            "intent": "update_task",
+            "task": None,
+            "tasks": None,
+            "task_update": {
+                "target_title": "准备简历",
+                "title": None,
+                "planned_date": "2026-06-10",
+                "planned_time": None,
+                "recurrence_rule": None,
+                "clear_recurrence_rule": True,
+                "action_key": None,
+                "clear_action_key": False,
+                "notes": None,
+            },
+            "goal": None,
+            "goal_progress": None,
+            "target_title": None,
+            "memory": None,
+            "reply": None,
+            "confidence": 0.9,
+        }
+    )
+
+    parsed = await provider.parse_intent(
+        user_id=1,
+        text="准备简历不需要重复，明天提醒就可以了。",
+        timezone="Asia/Shanghai",
+    )
+
+    kwargs = provider.client.chat.completions.last_kwargs
+    assert parsed.intent == IntentType.UPDATE_TASK
+    assert parsed.task_update is not None
+    assert parsed.task_update.target_title == "准备简历"
+    assert parsed.task_update.clear_recurrence_rule is True
+    assert "intent 是 update_task，不是 create_task" in kwargs["messages"][0]["content"]
+
+
 async def test_deepseek_json_output_goal_is_used() -> None:
     provider = DeepSeekProvider(Settings(DEEPSEEK_API_KEY="test-key"))
     provider.client = FakeDeepSeekClient(

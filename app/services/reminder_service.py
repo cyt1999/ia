@@ -72,6 +72,29 @@ class ReminderService:
         self.db.refresh(reminder)
         return reminder
 
+    def reschedule_for_task(self, *, task: Task, timezone: str) -> Reminder | None:
+        for reminder in self.db.scalars(
+            select(Reminder).where(
+                and_(
+                    Reminder.task_id == task.id,
+                    Reminder.status.in_(
+                        [ReminderStatus.PENDING.value, ReminderStatus.SNOOZED.value]
+                    ),
+                )
+            )
+        ):
+            reminder.status = ReminderStatus.CANCELLED.value
+            reminder.next_retry_at = None
+        self.db.commit()
+        return self.create_for_task(
+            user_id=task.user_id,
+            task_id=task.id,
+            title=task.title,
+            planned_date=task.planned_date,
+            planned_time=task.planned_time,
+            timezone=timezone,
+        )
+
     async def send_due(
         self,
         *,

@@ -3,11 +3,12 @@ from enum import StrEnum
 from pydantic import BaseModel, Field
 
 from app.schemas.goals import GoalCreate, GoalProgressUpdate
-from app.schemas.tasks import TaskCreate
+from app.schemas.tasks import TaskCreate, TaskUpdate
 
 
 class IntentType(StrEnum):
     CREATE_TASK = "create_task"
+    UPDATE_TASK = "update_task"
     LIST_TASKS = "list_tasks"
     CREATE_GOAL = "create_goal"
     UPDATE_GOAL_PROGRESS = "update_goal_progress"
@@ -26,6 +27,7 @@ class ParsedIntent(BaseModel):
     intent: IntentType
     task: TaskCreate | None = None
     tasks: list[TaskCreate] | None = None
+    task_update: TaskUpdate | None = None
     goal: GoalCreate | None = None
     goal_progress: GoalProgressUpdate | None = None
     target_title: str | None = None

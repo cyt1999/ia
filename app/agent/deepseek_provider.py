@@ -207,6 +207,7 @@ def _json_example(name: str) -> str:
                 "notes": None,
             },
             "tasks": None,
+            "task_update": None,
             "goal": None,
             "goal_progress": None,
             "target_title": None,
@@ -223,6 +224,7 @@ _INTENT_INSTRUCTIONS = """
 
 根据用户中文消息判断 intent：
 - create_task：用户要新增任务、安排事项、提醒未来要做的事
+- update_task：用户要修改已有任务的日期、时间、重复规则、标题或提醒方式
 - list_tasks：用户要查看当前任务、今天任务、待办事项或问“有哪些任务”
 - create_goal：用户要设定长期目标，例如存钱、减重、读书、运动目标
 - update_goal_progress：用户反馈某个目标的最新数值或阶段进度
@@ -250,6 +252,8 @@ _INTENT_INSTRUCTIONS = """
 - 上一条例子的 recurrence_rule 是 daily，planned_time 是 23:00:00
 - 用户在一句话里设置多个不同时间的提醒时，intent 仍然是 create_task
 - 多个提醒输出到 tasks 数组，task 填 null；不要改成 remember
+- 用户说“X 不需要重复/不用每天/改成明天提醒/明天就可以”是在修改已有任务，
+  intent 是 update_task，不是 create_task
 
 创建任务时：
 - task 必须是对象；其他 intent 时 task 必须是 null
@@ -272,7 +276,7 @@ _INTENT_INSTRUCTIONS = """
 - 如果今天对应时间已经早于输入里的 now，就填下一个符合规则的日期
 - importance 只能是 high、medium、low；默认 medium
 - task_type 只能是 work、life、rest、sleep、review、temp_reminder；默认 work
-- source 使用 user
+- 普通用户任务 source 使用 user；系统动作任务 source 使用 system
 - target_title 用于完成、推迟、取消任务时匹配任务标题；没有就填 null
 - memory 可在任何 intent 中填写，但只记录长期稳定偏好、固定习惯、用户背景或助手行为规则
 - 不要把一次性任务、一次性提醒、短期状态、普通聊天、完整原文写进 memory；不确定就填 null
@@ -281,6 +285,15 @@ _INTENT_INSTRUCTIONS = """
 - reply 可以给一条自然、简短、不机械的中文回应；创建/修改类可以填 null，让服务层生成确认文案
 - list_tasks 时 task 必须是 null，reply 可以填 null，让服务层从数据库生成任务列表
 - remember 只用于没有其他任务操作、主要是在表达长期偏好的消息；task 必须是 null
+
+更新任务时：
+- task_update 必须是对象；非 update_task 时 task_update 必须是 null
+- task_update.target_title 是要修改的已有任务短名，例如“准备简历”
+- “准备简历不需要重复，明天提醒就可以了”：
+  target_title 是“准备简历”，planned_date 是明天，clear_recurrence_rule 是 true
+- “不用每天提醒 X” 表示 clear_recurrence_rule 是 true
+- “改成每天提醒 X” 表示 recurrence_rule 是 daily
+- 只填写用户明确要修改的字段；没有提到的字段填 null 或 false
 
 创建目标时：
 - goal 必须是对象；非 create_goal 时 goal 必须是 null
@@ -400,6 +413,36 @@ _TASK_SCHEMA: dict[str, Any] = {
     ],
 }
 
+_TASK_UPDATE_SCHEMA: dict[str, Any] = {
+    "type": ["object", "null"],
+    "additionalProperties": False,
+    "properties": {
+        "target_title": _NULLABLE_STRING,
+        "title": _NULLABLE_STRING,
+        "planned_date": _NULLABLE_STRING,
+        "planned_time": _NULLABLE_STRING,
+        "recurrence_rule": _NULLABLE_RECURRENCE_RULE,
+        "clear_recurrence_rule": {"type": "boolean"},
+        "action_key": {
+            "type": ["string", "null"],
+            "enum": ["daily_briefing", "daily_review", None],
+        },
+        "clear_action_key": {"type": "boolean"},
+        "notes": _NULLABLE_STRING,
+    },
+    "required": [
+        "target_title",
+        "title",
+        "planned_date",
+        "planned_time",
+        "recurrence_rule",
+        "clear_recurrence_rule",
+        "action_key",
+        "clear_action_key",
+        "notes",
+    ],
+}
+
 _PARSED_INTENT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
@@ -408,6 +451,7 @@ _PARSED_INTENT_SCHEMA: dict[str, Any] = {
             "type": "string",
             "enum": [
                 "create_task",
+                "update_task",
                 "list_tasks",
                 "create_goal",
                 "update_goal_progress",
@@ -427,6 +471,7 @@ _PARSED_INTENT_SCHEMA: dict[str, Any] = {
             "type": ["array", "null"],
             "items": _TASK_SCHEMA,
         },
+        "task_update": _TASK_UPDATE_SCHEMA,
         "goal": _GOAL_SCHEMA,
         "goal_progress": _GOAL_PROGRESS_SCHEMA,
         "target_title": _NULLABLE_STRING,
@@ -438,6 +483,7 @@ _PARSED_INTENT_SCHEMA: dict[str, Any] = {
         "intent",
         "task",
         "tasks",
+        "task_update",
         "goal",
         "goal_progress",
         "target_title",

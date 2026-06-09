@@ -26,6 +26,18 @@ class TaskCreate(BaseModel):
     notes: str | None = None
 
 
+class TaskUpdate(BaseModel):
+    target_title: str | None = None
+    title: str | None = None
+    planned_date: date | None = None
+    planned_time: time | None = None
+    recurrence_rule: RecurrenceRule | None = None
+    clear_recurrence_rule: bool = False
+    action_key: TaskActionKey | None = None
+    clear_action_key: bool = False
+    notes: str | None = None
+
+
 class TaskSummary(BaseModel):
     id: int
     title: str

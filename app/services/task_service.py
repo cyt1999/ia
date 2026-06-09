@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.models.enums import TaskStatus
 from app.models.task import Task
-from app.schemas.tasks import TaskCreate, TaskSummary
+from app.schemas.tasks import TaskCreate, TaskSummary, TaskUpdate
 from app.utils.timezone import from_utc, now_utc
 
 
@@ -91,6 +91,32 @@ class TaskService:
         if task is None:
             return None
         task.status = TaskStatus.CANCELLED.value
+        self.db.commit()
+        self.db.refresh(task)
+        return task
+
+    def update_most_relevant(self, user_id: int, data: TaskUpdate) -> Task | None:
+        task = self._find_target(user_id, data.target_title)
+        if task is None:
+            return None
+        if data.title:
+            task.title = data.title
+        if data.planned_date is not None:
+            task.planned_date = data.planned_date
+        if data.planned_time is not None:
+            task.planned_time = data.planned_time
+        if data.clear_recurrence_rule:
+            task.recurrence_rule = None
+        elif data.recurrence_rule is not None:
+            task.recurrence_rule = data.recurrence_rule.value
+        if data.clear_action_key:
+            task.action_key = None
+            task.source = "user"
+        elif data.action_key is not None:
+            task.action_key = data.action_key.value
+            task.source = "system"
+        if data.notes is not None:
+            task.notes = data.notes
         self.db.commit()
         self.db.refresh(task)
         return task

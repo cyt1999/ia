@@ -21,7 +21,7 @@ from app.models.reminder import Reminder
 from app.models.task import Task
 from app.schemas.goals import GoalCreate, GoalProgressUpdate
 from app.schemas.reviews import ReviewParsedUpdate
-from app.schemas.tasks import TaskCreate
+from app.schemas.tasks import TaskCreate, TaskUpdate
 from app.services.interaction_router import InteractionRouter
 from app.services.task_service import TaskService
 
@@ -118,6 +118,19 @@ class CreateDailyPlanningAndReviewTasksLLM(FakeLLM):
                     source=TaskSource.SYSTEM,
                 ),
             ],
+            confidence=0.9,
+        )
+
+
+class UpdateResumeTaskLLM(FakeLLM):
+    async def parse_intent(self, *, user_id: int, text: str, timezone: str) -> ParsedIntent:
+        return ParsedIntent(
+            intent=IntentType.UPDATE_TASK,
+            task_update=TaskUpdate(
+                target_title="准备简历",
+                planned_date=date(2026, 6, 10),
+                clear_recurrence_rule=True,
+            ),
             confidence=0.9,
         )
 
@@ -249,7 +262,10 @@ async def test_router_replies_with_current_task_list(db_session: Session, user) 
 
     assert channel.sent[0][1].title == "当前任务"
     assert "健身" in channel.sent[0][1].plain_text
-    assert "查看当天任务和目标" not in channel.sent[0][1].plain_text
+    assert "健身（普通任务）" in channel.sent[0][1].plain_text
+    assert "查看当天任务和目标" in channel.sent[0][1].plain_text
+    assert "系统任务" in channel.sent[0][1].plain_text
+    assert "每日任务和目标简报" in channel.sent[0][1].plain_text
     assert "客户报价" not in channel.sent[0][1].plain_text
     assert "过期任务" not in channel.sent[0][1].plain_text
 
@@ -311,7 +327,49 @@ async def test_router_confirms_multiple_recurring_task_rules(db_session: Session
     assert "我已安排 2 个任务" in channel.sent[0][1].plain_text
     assert "查看当天任务和目标" in channel.sent[0][1].plain_text
     assert "当日总结复盘" in channel.sent[0][1].plain_text
+    assert "类型：系统任务" in channel.sent[0][1].plain_text
+    assert "执行：每日任务和目标简报" in channel.sent[0][1].plain_text
+    assert "执行：晚间总结复盘" in channel.sent[0][1].plain_text
     assert "重复：每天" in channel.sent[0][1].plain_text
+
+
+async def test_router_updates_existing_task_instead_of_creating_duplicate(
+    db_session: Session, user
+) -> None:
+    service = TaskService(db_session)
+    service.create_task(
+        TaskCreate(
+            user_id=user.id,
+            title="准备简历",
+            planned_date=date(2026, 6, 9),
+            recurrence_rule=RecurrenceRule.DAILY,
+        )
+    )
+    channel = FakeChannel()
+    settings = Settings(
+        DEEPSEEK_API_KEY="",
+        FEISHU_ALLOWED_OPEN_ID="ou_user",
+        FEISHU_ALLOWED_CHAT_ID="oc_chat",
+    )
+    interaction = InboundInteraction(
+        channel="feishu",
+        message_id="om_update_resume",
+        sender_id="ou_user",
+        chat_id="oc_chat",
+        text="准备简历不需要重复，明天提醒就可以了。",
+    )
+
+    await InteractionRouter(
+        db_session, settings, channel=channel, llm=UpdateResumeTaskLLM()
+    ).handle(interaction)
+
+    tasks = db_session.query(Task).all()
+    assert len(tasks) == 1
+    assert tasks[0].title == "准备简历"
+    assert tasks[0].planned_date == date(2026, 6, 10)
+    assert tasks[0].recurrence_rule is None
+    assert channel.sent[0][1].title == "已更新"
+    assert "重复：不重复" in channel.sent[0][1].plain_text
 
 
 async def test_router_creates_goal(db_session: Session) -> None:

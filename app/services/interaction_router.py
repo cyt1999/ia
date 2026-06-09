@@ -100,7 +100,7 @@ class InteractionRouter:
                     interaction, "没找到任务", "我没找到要取消的任务，你可以说得具体一点。"
                 )
         elif parsed.intent == IntentType.LIST_TASKS:
-            tasks = task_service.current_tasks(user.id, user.timezone)
+            tasks = task_service.current_tasks(user.id, user.timezone, include_system=True)
             await self._reply_message(
                 interaction,
                 self.renderer.task_list(title="当前任务", rows=self._task_rows(tasks)),
@@ -153,6 +153,15 @@ class InteractionRouter:
                 )
         elif parsed.intent == IntentType.REMEMBER and parsed.memory:
             await self._reply(interaction, "已记住", f"我会记住：{parsed.memory}")
+        elif parsed.intent == IntentType.UPDATE_TASK and parsed.task_update:
+            task = task_service.update_most_relevant(user.id, parsed.task_update)
+            if task:
+                ReminderService(self.db).reschedule_for_task(task=task, timezone=user.timezone)
+                await self._reply(interaction, "已更新", self._task_updated_body(task))
+            else:
+                await self._reply(
+                    interaction, "没找到任务", "我没找到要修改的任务，你可以说得具体一点。"
+                )
         elif parsed.intent == IntentType.CREATE_TASK and (parsed.task or parsed.tasks):
             task_inputs = parsed.tasks or ([parsed.task] if parsed.task else [])
             tasks = []
@@ -231,9 +240,16 @@ class InteractionRouter:
                 when = task.planned_time.strftime("%H:%M")
 
             recurrence = self._recurrence_label(task.recurrence_rule)
-            details = "，".join(part for part in [when, recurrence] if part)
+            action = self._action_label(task.action_key)
+            task_type = self._task_list_type_label(task)
+            details = "，".join(part for part in [task_type, action, when, recurrence] if part)
             rows.append(f"- {task.title}（{details}）" if details else f"- {task.title}")
         return rows
+
+    def _task_list_type_label(self, task) -> str:
+        if task.source == "system" or task.action_key:
+            return "系统任务"
+        return "普通任务"
 
     def _recurrence_label(self, recurrence_rule: str | None) -> str | None:
         if recurrence_rule == "daily":
@@ -255,8 +271,18 @@ class InteractionRouter:
             rows.extend(f"  {line}" for line in self._task_detail_lines(task))
         return "\n".join(rows)
 
-    def _task_detail_lines(self, task) -> list[str]:
+    def _task_updated_body(self, task) -> str:
+        parts = [f"我已更新「{task.title}」。"]
+        parts.extend(self._task_detail_lines(task, include_non_recurring=True))
+        return "\n".join(parts)
+
+    def _task_detail_lines(self, task, *, include_non_recurring: bool = False) -> list[str]:
         parts = []
+        if task.source == "system":
+            parts.append("类型：系统任务")
+        action = self._action_label(task.action_key)
+        if action:
+            parts.append(f"执行：{action}")
         if task.planned_date:
             parts.append(f"日期：{task.planned_date}")
         if task.planned_time:
@@ -264,9 +290,18 @@ class InteractionRouter:
         recurrence = self._recurrence_label(task.recurrence_rule)
         if recurrence:
             parts.append(f"重复：{recurrence}")
+        elif include_non_recurring:
+            parts.append("重复：不重复")
         if task.estimated_minutes:
             parts.append(f"预计：{task.estimated_minutes} 分钟")
         return parts
+
+    def _action_label(self, action_key: str | None) -> str | None:
+        if action_key == "daily_briefing":
+            return "每日任务和目标简报"
+        if action_key == "daily_review":
+            return "晚间总结复盘"
+        return None
 
     def _goal_rows(self, goals) -> list[str]:
         service = GoalService(self.db)
