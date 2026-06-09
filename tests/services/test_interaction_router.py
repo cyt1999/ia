@@ -11,6 +11,8 @@ from app.models.enums import (
     GoalProgressKind,
     Importance,
     RecurrenceRule,
+    TaskActionKey,
+    TaskSource,
     TaskType,
 )
 from app.models.goal import Goal, GoalProgressEntry
@@ -102,6 +104,8 @@ class CreateDailyPlanningAndReviewTasksLLM(FakeLLM):
                     planned_date=date(2026, 6, 9),
                     planned_time=time(9, 0),
                     recurrence_rule=RecurrenceRule.DAILY,
+                    action_key=TaskActionKey.DAILY_BRIEFING,
+                    source=TaskSource.SYSTEM,
                 ),
                 TaskCreate(
                     user_id=user_id,
@@ -110,6 +114,8 @@ class CreateDailyPlanningAndReviewTasksLLM(FakeLLM):
                     planned_date=date(2026, 6, 9),
                     planned_time=time(23, 0),
                     recurrence_rule=RecurrenceRule.DAILY,
+                    action_key=TaskActionKey.DAILY_REVIEW,
+                    source=TaskSource.SYSTEM,
                 ),
             ],
             confidence=0.9,
@@ -208,6 +214,15 @@ async def test_router_replies_with_current_task_list(db_session: Session, user) 
     service.create_task(
         TaskCreate(
             user_id=user.id,
+            title="查看当天任务和目标",
+            source=TaskSource.SYSTEM,
+            action_key=TaskActionKey.DAILY_BRIEFING,
+            recurrence_rule=RecurrenceRule.DAILY,
+        )
+    )
+    service.create_task(
+        TaskCreate(
+            user_id=user.id,
             title="过期任务",
             planned_date=date(2000, 1, 1),
             planned_time=time(9, 0),
@@ -234,6 +249,7 @@ async def test_router_replies_with_current_task_list(db_session: Session, user) 
 
     assert channel.sent[0][1].title == "当前任务"
     assert "健身" in channel.sent[0][1].plain_text
+    assert "查看当天任务和目标" not in channel.sent[0][1].plain_text
     assert "客户报价" not in channel.sent[0][1].plain_text
     assert "过期任务" not in channel.sent[0][1].plain_text
 
@@ -288,6 +304,8 @@ async def test_router_confirms_multiple_recurring_task_rules(db_session: Session
     tasks = db_session.query(Task).order_by(Task.planned_time).all()
     assert [task.title for task in tasks] == ["查看当天任务和目标", "当日总结复盘"]
     assert [task.recurrence_rule for task in tasks] == ["daily", "daily"]
+    assert [task.action_key for task in tasks] == ["daily_briefing", "daily_review"]
+    assert [task.source for task in tasks] == ["system", "system"]
     assert db_session.query(Reminder).count() == 2
     assert channel.sent[0][1].title == "已安排"
     assert "我已安排 2 个任务" in channel.sent[0][1].plain_text

@@ -40,6 +40,7 @@ def upgrade() -> None:
         sa.Column("planned_time", sa.Time()),
         sa.Column("estimated_minutes", sa.Integer()),
         sa.Column("recurrence_rule", sa.String(length=32)),
+        sa.Column("action_key", sa.String(length=64)),
         sa.Column("actual_completed_at", sa.DateTime(timezone=True)),
         sa.Column("status", sa.String(length=32), nullable=False),
         sa.Column("reminder_window_min", sa.Integer(), nullable=False),

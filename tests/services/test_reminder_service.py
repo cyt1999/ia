@@ -4,9 +4,17 @@ from types import SimpleNamespace
 
 from sqlalchemy.orm import Session
 
-from app.models.enums import RecurrenceRule, ReminderStatus
+from app.models.enums import (
+    GoalDirection,
+    RecurrenceRule,
+    ReminderStatus,
+    TaskActionKey,
+    TaskSource,
+)
 from app.models.reminder import Reminder
+from app.schemas.goals import GoalCreate
 from app.schemas.tasks import TaskCreate
+from app.services.goal_service import GoalService
 from app.services.reminder_service import ReminderService
 from app.services.task_service import TaskService
 
@@ -101,3 +109,122 @@ async def test_send_due_schedules_next_weekday_recurring_task(
     assert reminders[0].status == ReminderStatus.SENT.value
     assert reminders[1].scheduled_start_at == datetime(2026, 6, 15, 1, 0)
     assert task.planned_date == date(2026, 6, 15)
+
+
+async def test_send_due_executes_daily_briefing_action(db_session: Session, user) -> None:
+    task_service = TaskService(db_session)
+    briefing_task = task_service.create_task(
+        TaskCreate(
+            user_id=user.id,
+            title="查看当天任务和目标",
+            planned_date=date(2026, 6, 9),
+            planned_time=datetime(2026, 6, 9, 9, 0).time(),
+            recurrence_rule=RecurrenceRule.DAILY,
+            action_key=TaskActionKey.DAILY_BRIEFING,
+            source=TaskSource.SYSTEM,
+        )
+    )
+    task_service.create_task(
+        TaskCreate(
+            user_id=user.id,
+            title="客户报价",
+            planned_date=date(2026, 6, 9),
+            planned_time=datetime(2026, 6, 9, 10, 0).time(),
+        )
+    )
+    GoalService(db_session).create_goal(
+        GoalCreate(
+            user_id=user.id,
+            title="存钱",
+            metric_name="存款",
+            unit="元",
+            direction=GoalDirection.INCREASE,
+            target_value=100000,
+            current_value=10000,
+            start_date=date(2026, 6, 9),
+            deadline=date(2026, 8, 31),
+        )
+    )
+    service = ReminderService(db_session)
+    service.create_for_task(
+        user_id=user.id,
+        task_id=briefing_task.id,
+        title=briefing_task.title,
+        planned_date=briefing_task.planned_date,
+        planned_time=briefing_task.planned_time,
+        timezone="Asia/Shanghai",
+    )
+    channel = FakeChannel()
+
+    sent = await service.send_due(
+        channel=channel,
+        chat_id="oc_chat",
+        now=datetime(2026, 6, 9, 1, 0, tzinfo=UTC),
+        timezone="Asia/Shanghai",
+    )
+
+    reminders = db_session.query(Reminder).order_by(Reminder.id).all()
+    message = channel.sent[0][1]
+    assert sent == 1
+    assert message.title == "今日安排"
+    assert "客户报价" in message.plain_text
+    assert "存钱" in message.plain_text
+    assert "查看当天任务和目标" not in message.plain_text
+    assert reminders[0].status == ReminderStatus.SENT.value
+    assert reminders[1].scheduled_start_at == datetime(2026, 6, 10, 1, 0)
+
+
+async def test_send_due_executes_daily_review_action(db_session: Session, user) -> None:
+    task_service = TaskService(db_session)
+    review_task = task_service.create_task(
+        TaskCreate(
+            user_id=user.id,
+            title="当日总结复盘",
+            planned_date=date(2026, 6, 9),
+            planned_time=datetime(2026, 6, 9, 23, 0).time(),
+            recurrence_rule=RecurrenceRule.DAILY,
+            action_key=TaskActionKey.DAILY_REVIEW,
+            source=TaskSource.SYSTEM,
+        )
+    )
+    task_service.create_task(
+        TaskCreate(
+            user_id=user.id,
+            title="客户报价",
+            planned_date=date(2026, 6, 9),
+            planned_time=datetime(2026, 6, 9, 10, 0).time(),
+        )
+    )
+    task_service.create_task(
+        TaskCreate(
+            user_id=user.id,
+            title="整理方案",
+            planned_date=date(2026, 6, 9),
+            planned_time=datetime(2026, 6, 9, 15, 0).time(),
+        )
+    )
+    task_service.complete_most_relevant(user.id, "客户报价")
+    service = ReminderService(db_session)
+    service.create_for_task(
+        user_id=user.id,
+        task_id=review_task.id,
+        title=review_task.title,
+        planned_date=review_task.planned_date,
+        planned_time=review_task.planned_time,
+        timezone="Asia/Shanghai",
+    )
+    channel = FakeChannel()
+
+    sent = await service.send_due(
+        channel=channel,
+        chat_id="oc_chat",
+        now=datetime(2026, 6, 9, 15, 0, tzinfo=UTC),
+        timezone="Asia/Shanghai",
+    )
+
+    message = channel.sent[0][1]
+    assert sent == 1
+    assert message.title == "晚间复盘"
+    assert "客户报价" in message.plain_text
+    assert "整理方案" in message.plain_text
+    assert "当日总结复盘" not in message.plain_text

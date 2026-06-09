@@ -202,6 +202,7 @@ def _json_example(name: str) -> str:
                 "planned_time": "09:00:00",
                 "estimated_minutes": 120,
                 "recurrence_rule": None,
+                "action_key": None,
                 "source": "user",
                 "notes": None,
             },
@@ -241,9 +242,11 @@ _INTENT_INSTRUCTIONS = """
 - 不要因为周期任务是长期规则就归为 remember
 - 例：“每天早上9点告诉我当天要做的事情，还有当前的目标”
   是 create_task，title 是“查看当天任务和目标”，recurrence_rule 是 daily
+- 上一条例子的 source 是 system，action_key 是 daily_briefing
 - 上一条例子的 planned_time 是 09:00:00
 - 例：“每天晚上11点告诉我当天做了什么，做一个总结复盘”
   是 create_task，title 是“当日总结复盘”，task_type 是 review
+- 上一条例子的 source 是 system，action_key 是 daily_review
 - 上一条例子的 recurrence_rule 是 daily，planned_time 是 23:00:00
 - 用户在一句话里设置多个不同时间的提醒时，intent 仍然是 create_task
 - 多个提醒输出到 tasks 数组，task 填 null；不要改成 remember
@@ -260,6 +263,11 @@ _INTENT_INSTRUCTIONS = """
 - planned_date 使用 YYYY-MM-DD，planned_time 使用 HH:MM:SS；没有明确日期或时间就填 null
 - “今天、明天、后天、下周”等相对日期必须基于输入里的 today 计算
 - recurrence_rule 表示重复规则：一次性任务填 null；“每天”填 daily；“每个工作日/工作日”填 weekdays
+- action_key 表示到点后要执行的系统动作；普通任务填 null
+- “告诉我今天/当天要做的事/任务/待办，还有目标/当前目标”
+  action_key 填 daily_briefing，source 填 system
+- “总结复盘/当日复盘/告诉我今天做了什么”
+  action_key 填 daily_review，source 填 system，task_type 填 review
 - 周期任务的 planned_date 是下一次发生日期
 - 如果今天对应时间已经早于输入里的 now，就填下一个符合规则的日期
 - importance 只能是 high、medium、low；默认 medium
@@ -370,6 +378,10 @@ _TASK_SCHEMA: dict[str, Any] = {
         "planned_time": _NULLABLE_STRING,
         "estimated_minutes": _NULLABLE_INTEGER,
         "recurrence_rule": _NULLABLE_RECURRENCE_RULE,
+        "action_key": {
+            "type": ["string", "null"],
+            "enum": ["daily_briefing", "daily_review", None],
+        },
         "source": {"type": "string", "enum": ["user", "review", "carry_over", "system"]},
         "notes": _NULLABLE_STRING,
     },
@@ -382,6 +394,7 @@ _TASK_SCHEMA: dict[str, Any] = {
         "planned_time",
         "estimated_minutes",
         "recurrence_rule",
+        "action_key",
         "source",
         "notes",
     ],

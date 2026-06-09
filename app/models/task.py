@@ -20,6 +20,7 @@ class Task(Base):
     planned_time: Mapped[time | None] = mapped_column(Time)
     estimated_minutes: Mapped[int | None] = mapped_column(Integer)
     recurrence_rule: Mapped[str | None] = mapped_column(String(32))
+    action_key: Mapped[str | None] = mapped_column(String(64))
     actual_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(String(32), default="not_started", index=True)
     reminder_window_min: Mapped[int] = mapped_column(Integer, default=10)

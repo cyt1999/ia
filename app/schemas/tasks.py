@@ -2,7 +2,14 @@ from datetime import date, time
 
 from pydantic import BaseModel
 
-from app.models.enums import Importance, RecurrenceRule, TaskSource, TaskStatus, TaskType
+from app.models.enums import (
+    Importance,
+    RecurrenceRule,
+    TaskActionKey,
+    TaskSource,
+    TaskStatus,
+    TaskType,
+)
 
 
 class TaskCreate(BaseModel):
@@ -14,6 +21,7 @@ class TaskCreate(BaseModel):
     planned_time: time | None = None
     estimated_minutes: int | None = None
     recurrence_rule: RecurrenceRule | None = None
+    action_key: TaskActionKey | None = None
     source: TaskSource = TaskSource.USER
     notes: str | None = None
 
@@ -26,3 +34,4 @@ class TaskSummary(BaseModel):
     status: TaskStatus
     planned_time: time | None = None
     recurrence_rule: RecurrenceRule | None = None
+    action_key: TaskActionKey | None = None

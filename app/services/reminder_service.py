@@ -9,6 +9,7 @@ from app.models.enums import ReminderKind, ReminderStatus, TaskStatus
 from app.models.reminder import Reminder
 from app.models.task import Task
 from app.services.message_renderer import MessageRenderer
+from app.services.scheduled_action_service import ScheduledActionExecutor
 from app.utils.timezone import combine_local, from_utc, sleep_midnight_for, to_utc
 
 
@@ -93,14 +94,7 @@ class ReminderService:
         )
         sent = 0
         for reminder in due:
-            body = "差不多该切换状态了。先做最小一步就行。"
-            message = self.renderer.reminder(
-                title=reminder.title,
-                planned_at=reminder.scheduled_start_at,
-                body=body,
-                reminder_id=reminder.id,
-                task_id=reminder.task_id,
-            )
+            message = self._message_for_reminder(reminder, now=now, timezone=timezone)
             result = await channel.send(chat_id, message)
             if result.ok:
                 reminder.status = ReminderStatus.SENT.value
@@ -109,6 +103,31 @@ class ReminderService:
                 sent += 1
         self.db.commit()
         return sent
+
+    def _message_for_reminder(
+        self, reminder: Reminder, *, now: datetime, timezone: str
+    ):
+        task = self.db.get(Task, reminder.task_id) if reminder.task_id else None
+        if task and task.action_key:
+            message = ScheduledActionExecutor(self.db, self.renderer).message_for(
+                action_key=task.action_key,
+                user_id=reminder.user_id,
+                now=now,
+                timezone=timezone,
+                reminder_id=reminder.id,
+                task_id=reminder.task_id,
+            )
+            if message is not None:
+                return message
+
+        body = "差不多该切换状态了。先做最小一步就行。"
+        return self.renderer.reminder(
+            title=reminder.title,
+            planned_at=reminder.scheduled_start_at,
+            body=body,
+            reminder_id=reminder.id,
+            task_id=reminder.task_id,
+        )
 
     def ack(self, reminder_id: int) -> Reminder | None:
         reminder = self.db.get(Reminder, reminder_id)

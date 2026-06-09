@@ -21,6 +21,7 @@ class TaskService:
             planned_time=data.planned_time,
             estimated_minutes=data.estimated_minutes,
             recurrence_rule=data.recurrence_rule.value if data.recurrence_rule else None,
+            action_key=data.action_key.value if data.action_key else None,
             source=data.source.value,
             notes=data.notes,
         )
@@ -37,13 +38,16 @@ class TaskService:
         )
         return list(self.db.scalars(stmt))
 
-    def active_tasks(self, user_id: int) -> list[Task]:
+    def active_tasks(self, user_id: int, *, include_system: bool = False) -> list[Task]:
         stmt = select(Task).where(
             and_(
                 Task.user_id == user_id,
                 Task.status.in_([TaskStatus.NOT_STARTED.value, TaskStatus.IN_PROGRESS.value]),
             )
-        ).order_by(
+        )
+        if not include_system:
+            stmt = stmt.where(Task.source != "system")
+        stmt = stmt.order_by(
             Task.planned_date.is_(None),
             Task.planned_date,
             Task.planned_time.is_(None),
@@ -52,9 +56,11 @@ class TaskService:
         )
         return list(self.db.scalars(stmt))
 
-    def current_tasks(self, user_id: int, timezone: str) -> list[Task]:
+    def current_tasks(
+        self, user_id: int, timezone: str, *, include_system: bool = False
+    ) -> list[Task]:
         local_now = from_utc(now_utc(), timezone)
-        tasks = self.active_tasks(user_id)
+        tasks = self.active_tasks(user_id, include_system=include_system)
         return [
             task
             for task in tasks
@@ -99,6 +105,7 @@ class TaskService:
                 status=task.status,
                 planned_time=task.planned_time,
                 recurrence_rule=task.recurrence_rule,
+                action_key=task.action_key,
             )
             for task in tasks
         ]

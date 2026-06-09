@@ -199,7 +199,8 @@ async def test_deepseek_json_output_multiple_recurring_tasks_is_used() -> None:
                     "planned_time": "09:00:00",
                     "estimated_minutes": None,
                     "recurrence_rule": "daily",
-                    "source": "user",
+                    "action_key": "daily_briefing",
+                    "source": "system",
                     "notes": None,
                 },
                 {
@@ -211,7 +212,8 @@ async def test_deepseek_json_output_multiple_recurring_tasks_is_used() -> None:
                     "planned_time": "23:00:00",
                     "estimated_minutes": None,
                     "recurrence_rule": "daily",
-                    "source": "user",
+                    "action_key": "daily_review",
+                    "source": "system",
                     "notes": None,
                 },
             ],
@@ -234,7 +236,11 @@ async def test_deepseek_json_output_multiple_recurring_tasks_is_used() -> None:
     assert parsed.task is None
     assert len(parsed.tasks) == 2
     assert parsed.tasks[0].title == "查看当天任务和目标"
+    assert parsed.tasks[0].action_key == "daily_briefing"
+    assert parsed.tasks[0].source == "system"
     assert parsed.tasks[1].title == "当日总结复盘"
+    assert parsed.tasks[1].action_key == "daily_review"
+    assert parsed.tasks[1].source == "system"
 
 
 async def test_deepseek_json_output_goal_is_used() -> None:

@@ -31,6 +31,11 @@ class TaskSource(StrEnum):
     SYSTEM = "system"
 
 
+class TaskActionKey(StrEnum):
+    DAILY_BRIEFING = "daily_briefing"
+    DAILY_REVIEW = "daily_review"
+
+
 class RecurrenceRule(StrEnum):
     DAILY = "daily"
     WEEKDAYS = "weekdays"
